@@ -32,8 +32,8 @@ jobs:
           path: moktek-kaoss-studio.apk
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: v6.0-${{ github.run_number }}
-          name: mokteK Kaoss Studio V6 (Sample Studio)
+          tag_name: v7.0-${{ github.run_number }}
+          name: mokteK Kaoss Studio V7 (Sound Lab)
           files: moktek-kaoss-studio.apk
       - uses: actions/upload-pages-artifact@v3
         with:

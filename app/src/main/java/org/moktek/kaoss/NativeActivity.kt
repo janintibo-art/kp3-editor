@@ -137,7 +137,7 @@ open class NativeActivity : ComponentActivity() {
     "MIDI / USB" -> {Text("CONNEXIONS",color=Red,fontSize=22.sp);Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){Key("ACTUALISER"){scan()};Key("DÉCONNECTER"){stop();closeMidi()}};Text("Canal MIDI : $channel");Slider(value=channel.toFloat(),onValueChange={channel=it.toInt().coerceIn(1,16)},valueRange=1f..16f,steps=14);if(endpoints.isEmpty())Text("Aucun port MIDI Android détecté. Vérifier OTG ou interface DIN.");endpoints.forEach{ e->Key(e.label){connect(e)}};val usb=context.getSystemService(USB_SERVICE) as? UsbManager;Text("USB : "+(usb?.deviceList?.values?.joinToString { "%04X:%04X".format(it.vendorId,it.productId) }?.ifEmpty{"aucun"}?:"indisponible"));Text("Journal émission (simulation comprise)");logs.take(25).forEach{Text(it,fontSize=12.sp)} }
     "SESSIONS" -> {Text("SESSION LOCALE",color=Red,fontSize=22.sp);Key("SAUVEGARDER"){save()};Key("CHARGER"){load()};Text("Une session native locale. Les anciennes sessions WebView restent séparées.")}
     else -> { SampleStudio() }
-   };if(message.isNotEmpty())Text(message,color=Bone);Text("mokteK • FREE PARTY / SOUND SYSTEM • V6",fontSize=11.sp,color=Color(0xffab9582))
+   };if(message.isNotEmpty())Text(message,color=Bone);Text("mokteK • FREE PARTY / SOUND SYSTEM • V7",fontSize=11.sp,color=Color(0xffab9582))
   }}
  }
 }
