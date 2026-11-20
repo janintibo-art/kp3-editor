@@ -31,7 +31,8 @@ import java.util.zip.ZipOutputStream
 internal class KorgFileStore(private val context: Context) {
  private val korgDir = File(context.filesDir, "korg_reference_v14").apply { mkdirs() }
  private val bankDir = File(context.filesDir, "banks_v11")
- private val prefNames = listOf("native_sessions", "banks_v11")
+ private val prefNames = listOf("native_sessions", "banks_v11", "patterns_v9", "synth_presets")
+ private val legacyPrefNames = listOf("native_sessions", "banks_v11")
  private val maxSingle = 48L * 1024 * 1024
  private val maxTotal = 192L * 1024 * 1024
 
@@ -74,12 +75,18 @@ internal class KorgFileStore(private val context: Context) {
  }
  fun createBackup(): ByteArray {
   val out=ByteArrayOutputStream()
-  val manifest=JSONObject().put("format","moktek-backup").put("version",1).put("modelScope","LOCAL_ONLY").put("created",System.currentTimeMillis())
+  val manifest=JSONObject().put("format","moktek-backup").put("version",2).put("modelScope","LOCAL_ONLY").put("created",System.currentTimeMillis())
   val files=JSONObject();var total=0L
   ZipOutputStream(out).use { zip ->
    fun put(path:String,bytes:ByteArray) { total+=bytes.size;require(total<=maxTotal){"Sauvegarde trop volumineuse"};zip.putNextEntry(ZipEntry(path));zip.write(bytes);zip.closeEntry();files.put(path,digest(bytes)) }
    prefNames.forEach { name ->
-    val obj=JSONObject();context.getSharedPreferences(name,Context.MODE_PRIVATE).all.forEach { (k,v) -> if(v is String)obj.put(k,v) }
+    val obj=JSONObject();context.getSharedPreferences(name,Context.MODE_PRIVATE).all.forEach { (k,v) ->
+     when(v){ is String -> obj.put(k, JSONObject().put("type","string").put("value",v))
+      is Int -> obj.put(k, JSONObject().put("type","int").put("value",v))
+      is Long -> obj.put(k, JSONObject().put("type","long").put("value",v))
+      is Boolean -> obj.put(k, JSONObject().put("type","boolean").put("value",v))
+      is Float -> obj.put(k, JSONObject().put("type","float").put("value",v.toDouble())) }
+    }
     put("prefs/$name.json",obj.toString().toByteArray(Charsets.UTF_8))
    }
    if(bankDir.isDirectory)bankDir.listFiles().orEmpty().filter{it.isFile && it.name.matches(Regex("[a-zA-Z0-9._-]+\\.wav"))}.forEach { f ->
@@ -104,13 +111,22 @@ internal class KorgFileStore(private val context: Context) {
    }
   }
   val manifest=JSONObject(String(items["manifest.json"]?:error("Manifest absent"),Charsets.UTF_8))
-  require(manifest.optString("format")=="moktek-backup" && manifest.optInt("version")==1){"Format de sauvegarde incompatible"}
+  require(manifest.optString("format")=="moktek-backup" && manifest.optInt("version") in 1..2){"Format de sauvegarde incompatible"}
   val entries=manifest.getJSONObject("files")
   require(entries.length()==items.size-1){"Fichiers manquants ou ajoutés"}
   for((path,bytes) in items){if(path!="manifest.json")require(entries.optString(path)==digest(bytes)){"Empreinte invalide : $path"}}
-  prefNames.forEach { name->JSONObject(String(items["prefs/$name.json"]?:error("Préférences manquantes"),Charsets.UTF_8)) }
+  val required=if(manifest.optInt("version")==1)legacyPrefNames else prefNames
+  required.forEach { name->JSONObject(String(items["prefs/$name.json"]?:error("Préférences manquantes"),Charsets.UTF_8)) }
   return items
  }
+ fun backupAudit():String {
+  val names=mapOf("native_sessions" to "Sessions et mémoires", "banks_v11" to "Banques A–D", "patterns_v9" to "Séquenceur", "synth_presets" to "Presets Synth Factory")
+  val entries=names.map { (k,label)-> "$label : ${context.getSharedPreferences(k,Context.MODE_PRIVATE).all.size} réglage(s)" }
+  val wav=bankDir.listFiles().orEmpty().count { it.isFile && it.extension.lowercase()=="wav" }
+  val refs=korgDir.listFiles().orEmpty().count { it.isFile }
+  return (entries+"Samples WAV : $wav"+"Fichiers de référence : $refs").joinToString("\n")
+ }
+ fun verifyBackup(data:ByteArray):String = describeBackup(data)
  fun describeBackup(data:ByteArray):String{
   val items=decodeBackup(data)
   return "Sauvegarde locale valide : ${items.keys.count{it.startsWith("banks/")}} WAV, ${items.keys.count{it.startsWith("reference/")}} fichiers Korg conservés. La restauration remplace les banques et réglages locaux, pas le contenu physique du KP3."
@@ -129,9 +145,22 @@ internal class KorgFileStore(private val context: Context) {
    files.filterKeys{it.startsWith("banks/")}.forEach{(path,bytes)->File(bankDir,path.substringAfter('/')).writeBytes(bytes)}
    files.filterKeys{it.startsWith("reference/")}.forEach{(path,bytes)->File(korgDir,path.substringAfter('/')).writeBytes(bytes)}
    prefNames.forEach { name ->
-    val j=JSONObject(String(files.getValue("prefs/$name.json"),Charsets.UTF_8))
+    val raw=files["prefs/$name.json"] ?: return@forEach // Archive V14 ancienne : préserver les nouveaux réglages
+    val j=JSONObject(String(raw,Charsets.UTF_8))
     val edit=context.getSharedPreferences(name,Context.MODE_PRIVATE).edit().clear()
-    j.keys().forEach { k->edit.putString(k,j.getString(k)) }
+    j.keys().forEach { k->
+     val entry=j.get(k)
+     if(entry is JSONObject){
+      when(entry.optString("type")) {
+       "string" -> edit.putString(k,entry.getString("value"))
+       "int" -> edit.putInt(k,entry.getInt("value"))
+       "long" -> edit.putLong(k,entry.getLong("value"))
+       "float" -> edit.putFloat(k,entry.getDouble("value").toFloat())
+       "boolean" -> edit.putBoolean(k,entry.getBoolean("value"))
+       else -> error("Type de préférence inconnu : $k")
+      }
+     }else edit.putString(k,j.getString(k)) // Sauvegarde historique V14
+    }
     check(edit.commit()){ "Impossible de restaurer $name" }
    }
   } finally {stage.deleteRecursively()}
@@ -168,12 +197,15 @@ internal class KorgFileStore(private val context: Context) {
  if(selected.isNotBlank())Control("EXPORTER LE FICHIER ORIGINAL") {originalExport.launch(selected)}
  HorizontalDivider(color=steel)
  Text("SAUVEGARDE mokteK",color=red,fontWeight=FontWeight.Bold,fontSize=14.sp)
- Text("Archive ZIP des samples A–D, des sessions, des mémoires, des préférences MIDI et des fichiers Korg importés. Ce n'est PAS un fichier All Data compatible directement avec le KP3.",color=bone,fontSize=12.sp)
- Control("EXPORTER MA SAUVEGARDE ZIP") {runTask {pending=withContext(Dispatchers.IO){store.createBackup()};export.launch("moktek_backup_v14.zip")}}
+ Text("Archive ZIP des banques A–D, sessions, mémoires, séquenceur et presets Synth Factory, plus fichiers Korg importés. Ce n’est PAS un fichier All Data chargeable sur un KP3.",color=bone,fontSize=12.sp)
+ Text("INVENTAIRE AVANT SAUVEGARDE",color=red,fontSize=13.sp,fontWeight=FontWeight.Bold)
+ Text(store.backupAudit(),color=bone,fontSize=12.sp)
+ Control("EXPORTER MA SAUVEGARDE ZIP") {runTask {pending=withContext(Dispatchers.IO){store.createBackup().also{store.verifyBackup(it)}};message="Archive contrôlée : empreintes SHA-256 vérifiées";export.launch("moktek_backup_v16.zip")}}
  Control("IMPORTER / RESTAURER UNE SAUVEGARDE") {restorePicker.launch(arrayOf("application/zip","application/octet-stream"))}
  Control("EXPORTER LA COPIE DE SECOURS") {runTask { val saved=withContext(Dispatchers.IO){File(ctx.filesDir,"moktek_recovery_before_v14_restore.zip").takeIf{it.isFile}?.readBytes() ?: error("Aucune restauration précédente")};pending=saved;export.launch("moktek_recuperation_v14.zip") }}
  if(busy)LinearProgressIndicator(Modifier.fillMaxWidth())
  Text(message,color=bone,fontSize=12.sp)
- Text("Pour restaurer, une copie de sécurité est créée dans les fichiers privés de l'application. Fermer et rouvrir l'application après la restauration.",color=bone,fontSize=11.sp)
+ Text("V16 : une sauvegarde locale vérifiée par empreintes SHA-256, compatible avec les sauvegardes V14. Aucune opération d'écriture sur KP3/KP3+.",color=bone,fontSize=11.sp)
+ Text("Avant toute restauration, une copie de sécurité est créée dans les fichiers privés de l'application. Fermer et rouvrir l'application après restauration.",color=bone,fontSize=11.sp)
  if(confirmation)AlertDialog(onDismissRequest={confirmation=false;backupToRestore=null},title={Text("REMPLACER LES DONNÉES LOCALES ?")},text={Text("Les sessions et réglages actuels seront remplacés. Une copie de secours locale est créée avant restauration. AUCUNE donnée du KP3 physique ne sera modifiée.")},confirmButton={TextButton(onClick={val data=backupToRestore;backupToRestore=null;confirmation=false;if(data!=null)runTask{withContext(Dispatchers.IO){store.restoreBackup(data)};refs=store.references();message="Restauration terminée. Redémarrer l'application."}}){Text("RESTAURER")}},dismissButton={TextButton(onClick={confirmation=false;backupToRestore=null}){Text("ANNULER")}})
 }
