@@ -1,6 +1,10 @@
 package org.moktek.kaoss
 
 import android.os.Bundle
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import android.os.Handler
 import android.os.Looper
 import android.media.midi.*
@@ -87,6 +91,8 @@ open class NativeActivity : ComponentActivity() {
  }
  @Composable private fun Studio(){
   var tab by remember { mutableStateOf("LIVE") }; var model by remember { mutableStateOf("KP3") }; var x by remember { mutableIntStateOf(64) }; var y by remember { mutableIntStateOf(64) }; var program by remember { mutableIntStateOf(0) }; var depth by remember { mutableIntStateOf(100) }; var level by remember { mutableIntStateOf(100) }; var bpm by remember { mutableIntStateOf(174) }; var hold by remember { mutableStateOf(false) }; var loop by remember { mutableStateOf(true) }; var recording by remember { mutableStateOf(false) }; var playing by remember { mutableStateOf(false) }; var base by remember { mutableLongStateOf(0L) }; var lastTap by remember { mutableLongStateOf(0L) }; var job by remember { mutableStateOf<Job?>(null) }; var message by remember { mutableStateOf("") }; val motion=remember { mutableStateListOf<Motion>() }; val scope=rememberCoroutineScope(); val context=LocalContext.current; val wide=LocalConfiguration.current.screenWidthDp>=850; var stage by remember { mutableStateOf(false) }; val flashes=remember { mutableStateListOf(false,false,false,false) }
+  val pattern=remember { PatternState() }; var report by remember { mutableStateOf<ByteArray?>(null) }
+  val reportPicker=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")){uri->val data=report;report=null;if(uri!=null&&data!=null)scope.launch{try{withContext(Dispatchers.IO){context.contentResolver.openOutputStream(uri,"wt")?.use{it.write(data)}?:error("Écriture impossible")};message="Rapport exporté"}catch(e:Exception){message=e.message?:"Erreur export"}}}
   val banner=remember { context.assets.open("banner.jpg").use { BitmapFactory.decodeStream(it).asImageBitmap() } }
   fun point(a:Int,b:Int,gate:Int=-1){x=a;y=b;cc(12,a);cc(13,b);if(gate>=0)cc(92,gate);if(recording&&motion.size<10000)motion.add(Motion(android.os.SystemClock.elapsedRealtime()-base,a,b,gate))}
   fun stop(){job?.cancel();job=null;playing=false;cc(92,0)}
@@ -97,8 +103,10 @@ open class NativeActivity : ComponentActivity() {
   Surface(modifier=Modifier.fillMaxSize(),color=Ink){Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(10.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
    if(!stage) Image(banner,contentDescription="mokteK Kaoss Studio",modifier=Modifier.fillMaxWidth().heightIn(max=if(wide) 85.dp else 150.dp),contentScale=ContentScale.FillWidth)
    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Column { Text("mokteK / KAOSS STUDIO",color=Bone,fontWeight=FontWeight.Bold,fontSize=14.sp);Text(status,color=if(status=="MIDI CONNECTÉ")Color.Green else Bone,fontSize=11.sp) };Key(if(stage)"SORTIR SCÈNE" else "SCÈNE",stage){stage=!stage;tab="LIVE"}}
-   if(!stage) Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)){listOf("LIVE","MOTION","MIDI / USB","SESSIONS","STUDIO").forEach{Key(it,tab==it){tab=it}}}
+   if(!stage) Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)){listOf("LIVE","SEQ","STUDIO","MOTION","SESSIONS","MIDI / USB").forEach{Key(it,tab==it){tab=it}}}
+   if(!stage) Row(verticalAlignment=Alignment.CenterVertically){Text("Capture visible + diagnostic",modifier=Modifier.weight(1f),fontSize=11.sp);Key("RAPPORT"){runCatching{report=TestReport.capture(this@NativeActivity,tab,status);reportPicker.launch("moktek_${tab.replace(" / ","_")}.zip")}.onFailure{message=it.message?:"Capture impossible"}}}
    when(tab){
+    "SEQ" -> { TribeSequencer(pattern) }
     "LIVE" -> {
      val controls: @Composable ()->Unit = {
      Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)){Key("KP3",model=="KP3"){model="KP3";program=program.coerceAtMost(127)};Key("KP3+",model=="KP3+"){model="KP3+"}}
@@ -137,7 +145,7 @@ open class NativeActivity : ComponentActivity() {
     "MIDI / USB" -> {Text("CONNEXIONS",color=Red,fontSize=22.sp);Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){Key("ACTUALISER"){scan()};Key("DÉCONNECTER"){stop();closeMidi()}};Text("Canal MIDI : $channel");Slider(value=channel.toFloat(),onValueChange={channel=it.toInt().coerceIn(1,16)},valueRange=1f..16f,steps=14);if(endpoints.isEmpty())Text("Aucun port MIDI Android détecté. Vérifier OTG ou interface DIN.");endpoints.forEach{ e->Key(e.label){connect(e)}};val usb=context.getSystemService(USB_SERVICE) as? UsbManager;Text("USB : "+(usb?.deviceList?.values?.joinToString { "%04X:%04X".format(it.vendorId,it.productId) }?.ifEmpty{"aucun"}?:"indisponible"));Text("Journal émission (simulation comprise)");logs.take(25).forEach{Text(it,fontSize=12.sp)} }
     "SESSIONS" -> {Text("SESSION LOCALE",color=Red,fontSize=22.sp);Key("SAUVEGARDER"){save()};Key("CHARGER"){load()};Text("Une session native locale. Les anciennes sessions WebView restent séparées.")}
     else -> { SampleStudio() }
-   };if(message.isNotEmpty())Text(message,color=Bone);Text("mokteK • FREE PARTY / SOUND SYSTEM • V8",fontSize=11.sp,color=Color(0xffab9582))
+   };if(message.isNotEmpty())Text(message,color=Bone);Text("mokteK • FREE PARTY / SOUND SYSTEM • V9",fontSize=11.sp,color=Color(0xffab9582))
   }}
  }
 }
