@@ -32,8 +32,8 @@ jobs:
           path: moktek-kaoss-studio.apk
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: v14.0-${{ github.run_number }}
-          name: mokteK Kaoss Studio V14 (Korg File Center)
+          tag_name: v15.0-${{ github.run_number }}
+          name: mokteK Kaoss Studio V15 (Transfer Center diagnostic)
           files: moktek-kaoss-studio.apk
       - uses: actions/upload-pages-artifact@v3
         with:

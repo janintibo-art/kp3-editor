@@ -196,6 +196,7 @@ open class NativeActivity : ComponentActivity() {
     "MIDI / USB" -> {
      MidiGlobalEditor(model,midiProfile,{updateMidiProfile(it)}){updateMidiProfile(MidiLocalProfile())}
      Rack("CONNEXION / DIAGNOSTIC"){
+      Key("TRANSFER CENTER • ÉCOUTE MIDI"){tab="TRANSFERT"}
       Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){Key("ACTUALISER"){scan()};Key("DÉCONNECTER"){stop();closeMidi()}}
       Text("Statut : $status | Canal local : $channel",color=Bone,fontSize=12.sp)
       if(endpoints.isEmpty()) Text("Aucun port MIDI Android détecté. Vérifier OTG ou interface DIN.",fontSize=12.sp)
@@ -233,9 +234,10 @@ open class NativeActivity : ComponentActivity() {
      if(memoryDialog>=0){AlertDialog(onDismissRequest={memoryDialog=-1},title={Text("Enregistrer M${memoryDialog+1} — $memoryModel")},text={Column{Text("Remplace la mémoire locale si elle existe.");OutlinedTextField(value=memoryName,onValueChange={memoryName=it.take(40)},label={Text("Nom")},singleLine=true)}},confirmButton={TextButton(onClick={val i=memoryDialog;val j=JSONObject().put("name",memoryName.trim().ifEmpty{"Mémoire ${i+1}"}).put("program",program).put("depth",depth).put("level",level).put("bpm",bpm).put("x",x).put("y",y);prefs.edit().putString(memoryKey(memoryModel,i),j.toString()).apply();memoryRevision++;selectedMemory=i;memoryDialog=-1;message="Mémoire locale enregistrée"}){Text("ENREGISTRER")}},dismissButton={TextButton(onClick={memoryDialog=-1}){Text("ANNULER")}})}
     }
     "FICHIERS" -> { KorgFileCenter() }
-    "SESSIONS" -> {Text("SESSION LOCALE",color=Red,fontSize=22.sp);Key("SAUVEGARDER"){save()};Key("CHARGER"){load()};Key("PROGRAM MEMORY 1–8"){memoryModel=model;selectedMemory=-1;tab="PROGRAMMES"};Key("FICHIERS / SAUVEGARDES"){tab="FICHIERS"};Text("Une session native locale. Les anciennes sessions WebView restent séparées.")}
+    "TRANSFERT" -> { TransferCenter(model) }
+    "SESSIONS" -> {Text("SESSION LOCALE",color=Red,fontSize=22.sp);Key("SAUVEGARDER"){save()};Key("CHARGER"){load()};Key("PROGRAM MEMORY 1–8"){memoryModel=model;selectedMemory=-1;tab="PROGRAMMES"};Key("FICHIERS / SAUVEGARDES"){tab="FICHIERS"};Key("TRANSFER CENTER"){tab="TRANSFERT"};Text("Une session native locale. Les anciennes sessions WebView restent séparées.")}
     else -> { Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(5.dp)){CompactKey("BANQUES",Modifier.weight(1f),library){library=true};CompactKey("ÉDITEUR",Modifier.weight(1f),!library){library=false}};if(library) BankLibrary() else SampleStudio() }
-   };if(message.isNotEmpty())Text(message,color=Bone);Text("mokteK • FREE PARTY / SOUND SYSTEM • V13",fontSize=11.sp,color=Color(0xffab9582))
+   };if(message.isNotEmpty())Text(message,color=Bone);Text("mokteK • FREE PARTY / SOUND SYSTEM • V15",fontSize=11.sp,color=Color(0xffab9582))
   }}
  }
 }
