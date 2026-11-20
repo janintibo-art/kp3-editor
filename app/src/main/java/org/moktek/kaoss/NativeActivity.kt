@@ -56,6 +56,7 @@ open class NativeActivity : ComponentActivity() {
  private var generation=0
  private var status by mutableStateOf("SIMULATION")
  private var channel by mutableIntStateOf(1)
+ private var activeProfile by mutableStateOf(MidiLocalProfile())
  private var endpoints by mutableStateOf(emptyList<Endpoint>())
  private val logs=mutableStateListOf<String>()
  private val prefs by lazy { getSharedPreferences("native_sessions",MODE_PRIVATE) }
@@ -63,8 +64,11 @@ open class NativeActivity : ComponentActivity() {
  private fun scan(){ endpoints=midi?.devices?.flatMap { d -> d.ports.filter { it.type==MidiDeviceInfo.PortInfo.TYPE_INPUT }.map { p -> Endpoint(d,p.portNumber,"${d.properties.getString(MidiDeviceInfo.PROPERTY_NAME) ?: "MIDI"} / ${p.portNumber}") } } ?: emptyList() }
  private fun closeMidi(){ generation++; runCatching { port?.close() }; runCatching { device?.close() }; port=null; device=null; status="SIMULATION" }
  private fun connect(e:Endpoint){ closeMidi(); val g=generation; status="CONNEXION"; midi?.openDevice(e.info,{ d -> if(g!=generation){runCatching{d?.close()}}else{device=d; port=runCatching{d?.openInputPort(e.port)}.getOrNull(); status=if(port==null) "ÉCHEC MIDI" else "MIDI CONNECTÉ"} },handler) }
- private fun send(s:Int,a:Int,b:Int=0,len:Int=3){ val bytes=byteArrayOf((s+channel-1).toByte(),a.toByte(),b.toByte()); logs.add(0,bytes.take(len).joinToString(" "){ "%02X".format(it.toInt() and 255) }); if(logs.size>100)logs.removeAt(logs.lastIndex); try{port?.send(bytes,0,len)}catch(ex:Exception){closeMidi();status="MIDI PERDU"} }
- private fun cc(a:Int,b:Int)=send(176,a,b)
+ private fun send(s:Int,a:Int,b:Int=0,len:Int=3){
+  val kind=s and 0xf0
+  if((kind==0xc0 && !activeProfile.programEnabled) || ((kind==0x90 || kind==0x80) && !activeProfile.noteEnabled))return
+  val bytes=byteArrayOf((s+channel-1).toByte(),a.toByte(),b.toByte()); logs.add(0,bytes.take(len).joinToString(" "){ "%02X".format(it.toInt() and 255) }); if(logs.size>100)logs.removeAt(logs.lastIndex); try{port?.send(bytes,0,len)}catch(ex:Exception){closeMidi();status="MIDI PERDU"} }
+ private fun cc(a:Int,b:Int){if(activeProfile.ccEnabled)send(176,activeProfile.mapController(a),b)}
  override fun onDestroy(){closeMidi();super.onDestroy()}
  @Composable private fun Key(label:String,active:Boolean=false,action:()->Unit){
   Box(Modifier.heightIn(min=44.dp).clip(RoundedCornerShape(5.dp)).background(Brush.verticalGradient(listOf(if(active)Color(0xff72201e)else Color(0xff39322d),if(active)Color(0xff260b0b)else Ink))).border(1.dp,if(active)Red else Steel,RoundedCornerShape(5.dp)).clickable(onClick=action).padding(horizontal=13.dp,vertical=12.dp),contentAlignment=Alignment.Center){Text(label,color=if(active)Color(0xffffa397)else Bone,fontWeight=FontWeight.Bold,fontSize=12.sp)}
@@ -95,6 +99,10 @@ open class NativeActivity : ComponentActivity() {
  @Composable private fun Studio(){
   var tab by remember { mutableStateOf("LIVE") }; var model by remember { mutableStateOf("KP3") }; var x by remember { mutableIntStateOf(64) }; var y by remember { mutableIntStateOf(64) }; var program by remember { mutableIntStateOf(0) }; var depth by remember { mutableIntStateOf(100) }; var level by remember { mutableIntStateOf(100) }; var bpm by remember { mutableIntStateOf(174) }; var hold by remember { mutableStateOf(false) }; var loop by remember { mutableStateOf(true) }; var recording by remember { mutableStateOf(false) }; var playing by remember { mutableStateOf(false) }; var base by remember { mutableLongStateOf(0L) }; var lastTap by remember { mutableLongStateOf(0L) }; var job by remember { mutableStateOf<Job?>(null) }; var message by remember { mutableStateOf("") }; val motion=remember { mutableStateListOf<Motion>() }; val scope=rememberCoroutineScope(); val context=LocalContext.current; val config=LocalConfiguration.current; val wide=config.screenWidthDp>=600 && config.screenWidthDp>config.screenHeightDp; val shortScreen=config.screenHeightDp<420; var stage by remember { mutableStateOf(false) }; val flashes=remember { mutableStateListOf(false,false,false,false) }
   val pattern=remember { PatternState() }; var report by remember { mutableStateOf<ByteArray?>(null) }
+  var midiProfile by remember { mutableStateOf(loadMidiLocalProfile(prefs,model)) }
+  LaunchedEffect(model){midiProfile=loadMidiLocalProfile(prefs,model);activeProfile=midiProfile;channel=midiProfile.channel}
+  fun updateMidiProfile(next:MidiLocalProfile){midiProfile=next;activeProfile=next;channel=next.channel;prefs.edit().putString("midi_profile_$model",next.saveJson()).apply()}
+
   val reportPicker=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")){uri->val data=report;report=null;if(uri!=null&&data!=null)scope.launch{try{withContext(Dispatchers.IO){context.contentResolver.openOutputStream(uri,"wt")?.use{it.write(data)}?:error("Écriture impossible")};message="Rapport exporté"}catch(e:Exception){message=e.message?:"Erreur export"}}}
   val banner=remember { context.assets.open("banner.jpg").use { BitmapFactory.decodeStream(it).asImageBitmap() } }
   fun point(a:Int,b:Int,gate:Int=-1){x=a;y=b;cc(12,a);cc(13,b);if(gate>=0)cc(92,gate);if(recording&&motion.size<10000)motion.add(Motion(android.os.SystemClock.elapsedRealtime()-base,a,b,gate))}
@@ -184,7 +192,19 @@ open class NativeActivity : ComponentActivity() {
 
     }
     "MOTION" -> { Text("XY / AUTOMATION",color=Red,fontSize=22.sp);Text("${motion.size} événements • ${motion.lastOrNull()?.t ?: 0} ms");Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){Key(if(recording)"FIN REC" else "REC",recording){if(recording)recording=false else{stop();motion.clear();base=android.os.SystemClock.elapsedRealtime();recording=true;tab="LIVE"}};Key("PLAY",playing){play()};Key("STOP"){stop();recording=false};Key("LOOP",loop){loop=!loop}};Text("REC ouvre le pad Live. Revenir ici pour terminer la capture.") }
-    "MIDI / USB" -> {Text("CONNEXIONS",color=Red,fontSize=22.sp);Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){Key("ACTUALISER"){scan()};Key("DÉCONNECTER"){stop();closeMidi()}};Text("Canal MIDI : $channel");Slider(value=channel.toFloat(),onValueChange={channel=it.toInt().coerceIn(1,16)},valueRange=1f..16f,steps=14);if(endpoints.isEmpty())Text("Aucun port MIDI Android détecté. Vérifier OTG ou interface DIN.");endpoints.forEach{ e->Key(e.label){connect(e)}};val usb=context.getSystemService(USB_SERVICE) as? UsbManager;Text("USB : "+(usb?.deviceList?.values?.joinToString { "%04X:%04X".format(it.vendorId,it.productId) }?.ifEmpty{"aucun"}?:"indisponible"));Text("Journal émission (simulation comprise)");logs.take(25).forEach{Text(it,fontSize=12.sp)} }
+    "MIDI / USB" -> {
+     MidiGlobalEditor(model,midiProfile,{updateMidiProfile(it)}){updateMidiProfile(MidiLocalProfile())}
+     Rack("CONNEXION / DIAGNOSTIC"){
+      Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){Key("ACTUALISER"){scan()};Key("DÉCONNECTER"){stop();closeMidi()}}
+      Text("Statut : $status | Canal local : $channel",color=Bone,fontSize=12.sp)
+      if(endpoints.isEmpty()) Text("Aucun port MIDI Android détecté. Vérifier OTG ou interface DIN.",fontSize=12.sp)
+      endpoints.forEach{e->Key(e.label){connect(e)}}
+      val usb=context.getSystemService(USB_SERVICE) as? UsbManager
+      Text("USB : "+(usb?.deviceList?.values?.joinToString { "%04X:%04X".format(it.vendorId,it.productId) }?.ifEmpty{"aucun"}?:"indisponible"),fontSize=12.sp)
+      Text("Journal émission (simulation comprise)",fontSize=12.sp)
+      logs.take(25).forEach{Text(it,fontSize=11.sp)}
+     }
+    }
     "PROGRAMMES" -> {
      Rack("PROGRAM MEMORY / 1–8"){
       Text("Huit mémoires locales par modèle",color=Bone,fontSize=13.sp)
@@ -213,7 +233,7 @@ open class NativeActivity : ComponentActivity() {
     }
     "SESSIONS" -> {Text("SESSION LOCALE",color=Red,fontSize=22.sp);Key("SAUVEGARDER"){save()};Key("CHARGER"){load()};Key("PROGRAM MEMORY 1–8"){memoryModel=model;selectedMemory=-1;tab="PROGRAMMES"};Text("Une session native locale. Les anciennes sessions WebView restent séparées.")}
     else -> { Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(5.dp)){CompactKey("BANQUES",Modifier.weight(1f),library){library=true};CompactKey("ÉDITEUR",Modifier.weight(1f),!library){library=false}};if(library) BankLibrary() else SampleStudio() }
-   };if(message.isNotEmpty())Text(message,color=Bone);Text("mokteK • FREE PARTY / SOUND SYSTEM • V12",fontSize=11.sp,color=Color(0xffab9582))
+   };if(message.isNotEmpty())Text(message,color=Bone);Text("mokteK • FREE PARTY / SOUND SYSTEM • V13",fontSize=11.sp,color=Color(0xffab9582))
   }}
  }
 }
