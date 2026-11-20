@@ -2,11 +2,7 @@ package org.moktek.kaoss
 
 import android.content.Context
 import android.hardware.usb.UsbManager
-import android.media.midi.MidiDevice
-import android.media.midi.MidiDeviceInfo
-import android.media.midi.MidiManager
-import android.media.midi.MidiOutputPort
-import android.media.midi.MidiReceiver
+import android.media.midi.*
 import android.os.Handler
 import android.os.Looper
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -14,8 +10,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -26,123 +20,166 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.util.Locale
 
-/** Lecture MIDI exclusivement. Aucune commande de transfert, aucun SysEx sortant. */
-private class IncomingMidiMonitor(private val context:Context) {
- private val handler=Handler(Looper.getMainLooper())
- private val manager=context.getSystemService(Context.MIDI_SERVICE) as? MidiManager
+/** V17 : identité MIDI seulement ; aucune écriture de données Korg. */
+private class IdentityMonitor(private val context:Context) {
+ private val handler = Handler(Looper.getMainLooper())
+ private val manager = context.getSystemService(Context.MIDI_SERVICE) as? MidiManager
  var state by mutableStateOf("DÉCONNECTÉ")
   private set
- var selected by mutableStateOf("")
+ var selected by mutableStateOf("Aucun")
   private set
- var ports by mutableStateOf(emptyList<Pair<MidiDeviceInfo,Int>>())
+ var foundIdentity by mutableStateOf("Aucune réponse d’identité reçue")
   private set
- val events=mutableStateListOf<String>()
- private var opened:MidiDevice?=null
- private var output:MidiOutputPort?=null
+ var devices by mutableStateOf(emptyList<MidiDeviceInfo>())
+  private set
+ val events = mutableStateListOf<String>()
+ private var opened: MidiDevice? = null
+ private var readPort: MidiOutputPort? = null
+ private var sendPort: MidiInputPort? = null
  private var epoch=0
- private var byteCount=0L
- private var packetCount=0L
- fun refresh(){
-  val found=manager?.devices?.flatMap{dev->dev.ports.filter{it.type==MidiDeviceInfo.PortInfo.TYPE_OUTPUT}.map{Pair(dev,it.portNumber)}} ?: emptyList()
-  ports=found
-  if(found.isEmpty())state="AUCUN PORT MIDI SORTANT DÉTECTÉ"
+ private var bytesReceived=0L
+ private val framer = SysexFramer()
+ private var receiver: MidiReceiver?=null
+ fun refresh() {
+  devices=manager?.devices?.toList() ?: emptyList()
+  if(devices.isEmpty() && opened==null) state="AUCUN PÉRIPHÉRIQUE MIDI"
  }
- fun close(){
+ fun close() {
   epoch++
-  runCatching { output?.close() }; runCatching {opened?.close()}
-  output=null;opened=null;state="DÉCONNECTÉ";selected=""
+  runCatching { readPort?.close() }
+  runCatching { sendPort?.close() }
+  runCatching { opened?.close() }
+  receiver=null; readPort=null; sendPort=null; opened=null
+  framer.reset();selected="Aucun";state="DÉCONNECTÉ"
  }
- fun listen(info:MidiDeviceInfo, number:Int){
+ fun open(info:MidiDeviceInfo) {
   close()
   val request=epoch
-  state="OUVERTURE DU PORT…"
-  manager?.openDevice(info,{device->
-   if(request!=epoch){runCatching{device?.close()};return@openDevice}
-   if(device==null){state="OUVERTURE REFUSÉE";return@openDevice}
-   val receiver=object:MidiReceiver(){
-    override fun onSend(data:ByteArray, offset:Int, count:Int, timestamp:Long){
-     if(request!=epoch||count<=0)return
-     val n=count.coerceAtMost(64)
-     val txt=(offset until offset+n).joinToString(" "){"%02X".format(Locale.US,data[it].toInt() and 0xff)}
+  state="OUVERTURE…"
+  manager?.openDevice(info,{ dev ->
+   if(request!=epoch){runCatching{dev?.close()};return@openDevice}
+   if(dev==null){state="ÉCHEC DE CONNEXION";return@openDevice}
+   val readNumber=info.ports.firstOrNull {it.type==MidiDeviceInfo.PortInfo.TYPE_OUTPUT}?.portNumber
+   val sendNumber=info.ports.firstOrNull {it.type==MidiDeviceInfo.PortInfo.TYPE_INPUT}?.portNumber
+   val read=readNumber?.let{runCatching{dev.openOutputPort(it)}.getOrNull()}
+   val send=sendNumber?.let{runCatching{dev.openInputPort(it)}.getOrNull()}
+   if(read==null && send==null){runCatching{dev.close()};state="PORTS INACCESSIBLES";return@openDevice}
+   opened=dev;readPort=read;sendPort=send
+   framer.reset()
+   val incoming=object:MidiReceiver(){
+    override fun onSend(msg:ByteArray,offset:Int,count:Int,timestamp:Long){
+     if(count<=0||request!=epoch)return
+     // Traitement séquentiel sur le thread principal, sans conserver de buffer système mutable.
+     val copy=msg.copyOfRange(offset,offset+count)
      handler.post {
       if(request!=epoch)return@post
-      packetCount++;byteCount+=count
-      val type=if((data[offset].toInt() and 0xff)==0xf0)"SysEx (début)" else "MIDI"
-      events.add(0,"$type  ${count} octets : $txt${if(count>n)" …" else ""}")
-      if(events.size>75)events.removeAt(events.lastIndex)
+      bytesReceived+=copy.size
+      val hex=copy.take(64).joinToString(" "){String.format(Locale.US,"%02X",it.toInt() and 255)}
+      events.add(0,"RX ${copy.size} octets : $hex${if(copy.size>64)" …" else ""}")
+      for(frame in framer.accept(copy,0,copy.size)) {
+       val identity=identifyMidiReply(frame)
+       if(identity!=null){
+        foundIdentity="${identity.manufacturer} | canal ID ${identity.deviceId} | famille ${identity.family} | modèle ${identity.model} | firmware ${identity.version}"
+        events.add(0,"IDENTITÉ : $foundIdentity")
+       }else if(frame.size>2 && (frame[1].toInt() and 255)==0x42){
+        events.add(0,"SysEx Korg reçu (${frame.size} octets) : non interprété et non sauvegardé")
+       }
+      }
+      while(events.size>80)events.removeAt(events.lastIndex)
      }
     }
    }
-   val p=runCatching {device.openOutputPort(number)}.getOrNull()
-   if(p==null){runCatching{device.close()};state="PORT INACCESSIBLE";return@openDevice}
-   opened=device;output=p;p.connect(receiver)
-   selected="${info.properties.getString(MidiDeviceInfo.PROPERTY_NAME) ?: "Périphérique MIDI"} / OUT $number"
-   state="ÉCOUTE ACTIVE (LECTURE SEULE)"
+   receiver=incoming
+   runCatching{read?.connect(incoming)}
+   selected=info.properties.getString(MidiDeviceInfo.PROPERTY_NAME) ?: "Appareil MIDI #${info.id}"
+   state=when {
+    read!=null && send!=null -> "CONNECTÉ • RX + TX identité"
+    read!=null -> "ÉCOUTE SEULE • pas de port d'envoi"
+    else -> "ENVOI SEUL • aucune réception possible"
+   }
   },handler)
  }
- fun usbDescription():String{
-  val usb=context.getSystemService(Context.USB_SERVICE) as? UsbManager
-  return usb?.deviceList?.values?.joinToString("\n"){"VID %04X • PID %04X".format(Locale.US,it.vendorId,it.productId)}?.ifBlank{"Aucun appareil USB détecté"} ?: "USB indisponible"
+ fun requestIdentity() {
+  val port=sendPort
+  if(port==null){events.add(0,"Aucun port MIDI IN : demande impossible");return}
+  // Universal Non Real-Time Identity Request. Ne modifie pas mémoire, programmes ou samples.
+  val inquiry=byteArrayOf(0xF0.toByte(),0x7E,0x7F,0x06,0x01,0xF7.toByte())
+  runCatching{port.send(inquiry,0,inquiry.size)}
+   .onSuccess{events.add(0,"TX F0 7E 7F 06 01 F7 (demande d’identité seule)")}
+   .onFailure{state="ERREUR D’ENVOI : ${it.message}"}
  }
- fun exportReport(model:String):String=buildString {
-  appendLine("mokteK KAOSS STUDIO V15 — DIAGNOSTIC TRANSFER CENTER")
-  appendLine("Modèle déclaré : $model (non identifié automatiquement)")
-  appendLine("État : $state")
-  appendLine("Port : $selected")
+ fun clear(){events.clear();bytesReceived=0;foundIdentity="Aucune réponse d’identité reçue"}
+ fun usbDescription():String {
+  val usb=context.getSystemService(Context.USB_SERVICE) as? UsbManager
+  return usb?.deviceList?.values?.joinToString("\n"){"VID %04X • PID %04X".format(Locale.US,it.vendorId,it.productId)}?.ifBlank{"Aucun périphérique USB visible"}?:"USB non disponible"
+ }
+ fun report(declaredModel:String)=buildString {
+  appendLine("mokteK KAOSS STUDIO — V17 / IDENTITÉ MIDI")
+  appendLine("Modèle choisi par l’utilisateur : $declaredModel (non confirmé par cette sélection)")
+  appendLine("État : $state ; périphérique ouvert : $selected")
+  appendLine("Réponse : $foundIdentity")
   appendLine("USB : ${usbDescription()}")
-  appendLine("Paquets : $packetCount ; octets : $byteCount")
-  appendLine("Journal limité aux 75 derniers fragments, 64 octets maximum par fragment.")
-  appendLine("Aucun transfert vers la mémoire matérielle n'a été exécuté.")
+  appendLine("Périphériques MIDI Android : ${devices.size}")
+  appendLine("Octets reçus : $bytesReceived")
+  appendLine("Aucune écriture dans la mémoire du KP3/KP3+ ; seule la demande d’identité peut être émise.")
+  appendLine("Journal borné à 80 entrées, affichage tronqué à 64 octets par paquet.")
   appendLine()
   events.forEach{appendLine(it)}
  }
- fun clear(){events.clear();packetCount=0;byteCount=0}
 }
 
 @Composable
-internal fun TransferCenter(model:String){
+internal fun TransferCenter(model:String) {
  val context=androidx.compose.ui.platform.LocalContext.current
- val monitor=remember { IncomingMidiMonitor(context.applicationContext) }
+ val monitor=remember {IdentityMonitor(context.applicationContext)}
  val red=Color(0xffff493e);val bone=Color(0xffe9dac2)
  val card=Color(0xff211d1a);val steel=Color(0xff887766)
- var msg by remember {mutableStateOf("")}
- val exporter=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")){uri->
-  if(uri!=null) runCatching {context.contentResolver.openOutputStream(uri)?.use{it.write(monitor.exportReport(model).toByteArray(Charsets.UTF_8))} ?: error("Fichier inaccessible")}.onSuccess{msg="Diagnostic enregistré"}.onFailure{msg="Export impossible : ${it.message}"}
+ var message by remember{mutableStateOf("")}
+ val export=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")){uri->
+  if(uri!=null)runCatching {context.contentResolver.openOutputStream(uri)?.use{it.write(monitor.report(model).toByteArray(Charsets.UTF_8))}?:error("Fichier inaccessible")}
+   .onSuccess{message="Rapport enregistré"}.onFailure{message="Export impossible : ${it.message}"}
  }
  DisposableEffect(monitor){monitor.refresh();onDispose{monitor.close()}}
- Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(9.dp)){
-  Text("TRANSFER CENTER • V15",fontSize=21.sp,color=red)
-  Text("Diagnostic de connexion en lecture seule pour KP3 / KP3+. Les commandes d'écriture et le transfert des samples ne sont PAS actifs.",fontSize=12.sp,color=bone)
-  Column(Modifier.fillMaxWidth().background(card,RoundedCornerShape(8.dp)).border(1.dp,steel,RoundedCornerShape(8.dp)).padding(12.dp),verticalArrangement=Arrangement.spacedBy(7.dp)) {
-   Text("APPAREIL DÉCLARÉ : $model",fontSize=13.sp,color=red)
-   Text("ÉTAT : ${monitor.state}",fontSize=13.sp,color=bone)
-   Text("USB : ${monitor.usbDescription()}",fontSize=12.sp,color=bone)
-   Text("Port : ${monitor.selected.ifEmpty {"aucun"}}",fontSize=12.sp,color=bone)
+ Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+  Text("TRANSFER CENTER • V17",fontSize=20.sp,color=red)
+  Text("IDENTIFICATION MIDI SANS ÉCRITURE",fontSize=12.sp,color=bone)
+  Text("La demande d’identité standard ne modifie ni les réglages ni les samples. Les transferts Korg restent désactivés.",fontSize=11.sp,color=bone)
+  Column(Modifier.fillMaxWidth().background(card,RoundedCornerShape(8.dp)).border(1.dp,steel,RoundedCornerShape(8.dp)).padding(10.dp),verticalArrangement=Arrangement.spacedBy(7.dp)) {
+   Text("PROFIL CHOISI : $model",fontSize=12.sp,color=red)
+   Text(monitor.state,fontSize=12.sp,color=bone)
+   Text("PORT : ${monitor.selected}",fontSize=11.sp,color=bone)
+   Text(monitor.foundIdentity,fontSize=11.sp,color=bone)
+   Text("USB : ${monitor.usbDescription()}",fontSize=10.sp,color=bone)
+   Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+    OutlinedButton(onClick={monitor.refresh()},modifier=Modifier.weight(1f)){Text("ACTUALISER",fontSize=10.sp)}
+    OutlinedButton(onClick={monitor.close()},modifier=Modifier.weight(1f)){Text("DÉCONNECTER",fontSize=10.sp)}
+   }
+  }
+  Column(Modifier.fillMaxWidth().background(card,RoundedCornerShape(8.dp)).border(1.dp,steel,RoundedCornerShape(8.dp)).padding(10.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
+   Text("CHOISIR UNE INTERFACE MIDI",fontSize=12.sp,color=red)
+   if(monitor.devices.isEmpty()) Text("Aucune interface trouvée. Vérifier USB OTG ou interface USB-MIDI DIN.",fontSize=11.sp,color=bone)
+   monitor.devices.forEach{dev->
+    val name=dev.properties.getString(MidiDeviceInfo.PROPERTY_NAME)?:"MIDI #${dev.id}"
+    val canRead=dev.ports.any{it.type==MidiDeviceInfo.PortInfo.TYPE_OUTPUT}
+    val canWrite=dev.ports.any{it.type==MidiDeviceInfo.PortInfo.TYPE_INPUT}
+    OutlinedButton(onClick={monitor.open(dev)},modifier=Modifier.fillMaxWidth()){
+     Text("$name • ${if(canRead)"RX" else "—"} / ${if(canWrite)"TX" else "—"}",fontSize=10.sp)
+    }
+   }
+   Button(onClick={monitor.requestIdentity()},enabled=monitor.state.startsWith("CONNECTÉ")||monitor.state.startsWith("ENVOI"),modifier=Modifier.fillMaxWidth()){
+    Text("DEMANDER L’IDENTITÉ MIDI",fontSize=11.sp)
+   }
+   Text("Une interface DIN peut apparaître sous son propre nom : la réponse SysEx sert à identifier l’instrument derrière elle.",fontSize=10.sp,color=bone)
+  }
+  Column(Modifier.fillMaxWidth().background(card,RoundedCornerShape(8.dp)).border(1.dp,steel,RoundedCornerShape(8.dp)).padding(10.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
+   Text("JOURNAL DE DIAGNOSTIC",fontSize=12.sp,color=red)
    Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-    OutlinedButton(onClick={monitor.refresh()},modifier=Modifier.weight(1f)){Text("ACTUALISER",fontSize=11.sp)}
-    OutlinedButton(onClick={monitor.close()},modifier=Modifier.weight(1f)){Text("ARRÊTER",fontSize=11.sp)}
+    OutlinedButton(onClick={monitor.clear()},modifier=Modifier.weight(1f)){Text("EFFACER",fontSize=10.sp)}
+    OutlinedButton(onClick={export.launch("moktek_identite_v17.txt")},modifier=Modifier.weight(1f)){Text("EXPORTER",fontSize=10.sp)}
    }
+   if(monitor.events.isEmpty())Text("Aucun message reçu.",fontSize=11.sp,color=bone)
+   monitor.events.take(14).forEach{Text(it,fontSize=10.sp,fontFamily=FontFamily.Monospace,color=bone)}
   }
-  Column(Modifier.fillMaxWidth().background(card,RoundedCornerShape(8.dp)).border(1.dp,steel,RoundedCornerShape(8.dp)).padding(12.dp),verticalArrangement=Arrangement.spacedBy(5.dp)){
-   Text("PORTS POUR RECEVOIR DES DONNÉES",color=red,fontSize=13.sp)
-   Text("Un port « OUT » de la machine peut être lu par le téléphone. Le port MIDI utilisé dans Live pour envoyer des notes est différent.",color=bone,fontSize=11.sp)
-   if(monitor.ports.isEmpty())Text("Aucun port disponible. Essayer l’OTG ou une interface USB-MIDI compatible Android.",color=bone,fontSize=12.sp)
-   monitor.ports.forEach { (info,number)->
-    val name=info.properties.getString(MidiDeviceInfo.PROPERTY_NAME) ?: "Périphérique MIDI"
-    OutlinedButton(onClick={monitor.listen(info,number)},modifier=Modifier.fillMaxWidth()) { Text("ÉCOUTER : $name / OUT $number",fontSize=11.sp) }
-   }
-  }
-  Column(Modifier.fillMaxWidth().background(card,RoundedCornerShape(8.dp)).border(1.dp,steel,RoundedCornerShape(8.dp)).padding(12.dp),verticalArrangement=Arrangement.spacedBy(7.dp)){
-   Text("JOURNAL MIDI ENTRANT",color=red,fontSize=13.sp)
-   Text("Messages reçus : ${monitor.events.size} affichés ; aucun message n'est envoyé par cet écran.",color=bone,fontSize=11.sp)
-   Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-    OutlinedButton(onClick={monitor.clear()},modifier=Modifier.weight(1f)){Text("EFFACER",fontSize=11.sp)}
-    OutlinedButton(onClick={exporter.launch("moktek_transfer_v15.txt")},modifier=Modifier.weight(1f)){Text("EXPORTER",fontSize=11.sp)}
-   }
-   if(monitor.events.isEmpty())Text("Aucun message reçu pour le moment.",color=bone,fontSize=11.sp)
-   monitor.events.take(15).forEach { Text(it,fontFamily=FontFamily.Monospace,fontSize=10.sp,color=bone) }
-  }
-  Text("Étape suivante : décoder et valider les réponses SysEx propres à chaque modèle avant d'autoriser les sauvegardes et transferts matériels. Ne pas confondre écoute MIDI et sauvegarde du KP3.",color=bone,fontSize=11.sp)
-  if(msg.isNotBlank())Text(msg,color=red,fontSize=12.sp)
+  if(message.isNotBlank())Text(message,fontSize=12.sp,color=red)
  }
 }
