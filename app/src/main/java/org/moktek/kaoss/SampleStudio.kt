@@ -45,7 +45,7 @@ private fun loadWave(context:Context,uri:Uri):Wave {
  val context=LocalContext.current;val scope=rememberCoroutineScope();var wave by remember{mutableStateOf<Wave?>(null)};var peaks by remember{mutableStateOf(FloatArray(0))};var start by remember{mutableStateOf(0f)};var end by remember{mutableStateOf(1f)};var loop by remember{mutableStateOf(false)};var busy by remember{mutableStateOf(false)};var message by remember{mutableStateOf("Importer un WAV PCM 16 bits")};var track by remember{mutableStateOf<AudioTrack?>(null)};var pending by remember{mutableStateOf<ByteArray?>(null)}
  fun stop(){val old=track;track=null;runCatching{old?.stop()};runCatching{old?.release()}}
  DisposableEffect(Unit){onDispose{stop()}}
- var original by remember{mutableStateOf<Wave?>(null)};var undo by remember{mutableStateOf<Wave?>(null)};var gain by remember{mutableStateOf(1f)};var bpm by remember{mutableStateOf(174f)};var pitch by remember{mutableStateOf(55f)};var decay by remember{mutableStateOf(.12f)};var drive by remember{mutableStateOf(2f)}
+ var original by remember{mutableStateOf<Wave?>(null)};var undo by remember{mutableStateOf<Wave?>(null)};var gain by remember{mutableStateOf(1f)};var bpm by remember{mutableStateOf(174f)};var pitch by remember{mutableStateOf(55f)};var decay by remember{mutableStateOf(.12f)};var drive by remember{mutableStateOf(2f)};var kind by remember{mutableStateOf("Kick")};var tone by remember{mutableStateOf(.5f)};var presetName by remember{mutableStateOf("")};val prefs=remember{context.getSharedPreferences("synth_presets",Context.MODE_PRIVATE)};var custom by remember{mutableStateOf(prefs.all.keys.sorted())}
  fun edit(action:String, work:()->Wave){stop();busy=true;val before=wave;scope.launch{try{val result=withContext(Dispatchers.Default){val next=work();next to next.peaks()};undo=before;wave=result.first;peaks=result.second;message=action}catch(e:Exception){message=e.message?:"Traitement impossible"}finally{busy=false}}}
  val picker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()){uri->if(uri!=null){stop();busy=true;scope.launch{try{val result=withContext(Dispatchers.IO){val w=loadWave(context,uri);w to w.peaks()};wave=result.first;original=result.first;undo=null;peaks=result.second;start=0f;end=1f;message="Audio chargé"}catch(e:Exception){message=e.message?:"Import impossible"}finally{busy=false}}}}
  val exporter=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("audio/wav")){uri->val data=pending;pending=null;if(uri!=null&&data!=null){scope.launch{try{withContext(Dispatchers.IO){context.contentResolver.openOutputStream(uri,"wt")?.use{it.write(data)}?:error("Écriture impossible")};message="WAV exporté"}catch(e:Exception){message=e.message?:"Export impossible"}}}}
@@ -53,13 +53,20 @@ private fun loadWave(context:Context,uri:Uri):Wave {
  Text("SAMPLE STUDIO",color=red,fontSize=24.sp)
  Text("IMPORT / CUT / LOOP / EXPORT",color=Color(0xffe9dac2),fontSize=12.sp)
  Button(onClick={picker.launch(arrayOf("audio/*","application/octet-stream"))},enabled=!busy){Text("IMPORTER WAV")}
- Text("SOUND LAB • KICK FACTORY",color=red,fontSize=20.sp)
+ Text("SOUND LAB • SYNTH FACTORY",color=red,fontSize=20.sp)
+ for(group in listOf(listOf("Kick","Acid","Bass"),listOf("Snare","Hat","Tom"))){Row(horizontalArrangement=Arrangement.spacedBy(4.dp)){for(k in group){OutlinedButton(onClick={kind=k;if(k in listOf("Snare","Tom"))pitch=110f else if(pitch>100f)pitch=55f},enabled=!busy,modifier=Modifier.weight(1f)){Text(if(kind==k)"• $k" else k,fontSize=11.sp)}}}}
+ Text("PRESETS TRIBE / HARDTEK",color=red)
+ for(group in SynthFactory.presets.chunked(2)){Row(horizontalArrangement=Arrangement.spacedBy(4.dp)){for(p in group){OutlinedButton(onClick={kind=p.kind;bpm=p.bpm.toFloat();pitch=p.pitch;decay=p.decay;drive=p.drive;tone=p.tone},enabled=!busy,modifier=Modifier.weight(1f)){Text(p.name,fontSize=11.sp)}}}}
  Text("Tempo : ${bpm.toInt()} BPM");Slider(bpm,{bpm=it},valueRange=70f..240f,enabled=!busy)
- Text("Kick : ${pitch.toInt()} Hz • decay ${ (decay*1000).toInt()} ms • drive ${"%.1f".format(drive)}")
- Slider(pitch,{pitch=it},valueRange=35f..100f,enabled=!busy)
- Slider(decay,{decay=it},valueRange=.03f.. .4f,enabled=!busy)
+ Text("$kind : ${pitch.toInt()} Hz • decay ${(decay*1000).toInt()} ms • drive ${"%.1f".format(drive)}")
+ Slider(pitch,{pitch=it},valueRange=25f..400f,enabled=!busy)
+ Slider(decay,{decay=it},valueRange=.02f.. .5f,enabled=!busy)
  Slider(drive,{drive=it},valueRange=1f..8f,enabled=!busy)
- Button(onClick={val tempo=bpm.toInt();val p=pitch;val d=decay;val g=drive;start=0f;end=1f;edit("Kick généré"){Wave(44100,1,SoundLab.kick(44100,tempo,p,d,g))}},enabled=!busy){Text("GÉNÉRER KICK")}
+ Text("Couleur / filtre : ${(tone*100).toInt()} %");Slider(tone,{tone=it},enabled=!busy)
+ OutlinedTextField(value=presetName,onValueChange={presetName=it.take(48)},label={Text("Nom du preset personnel")},singleLine=true,enabled=!busy,modifier=Modifier.fillMaxWidth())
+ Button(onClick={val name=presetName.trim();prefs.edit().putString(name,listOf(kind,bpm,pitch,decay,drive,tone).joinToString("|")).apply();custom=prefs.all.keys.sorted();message="Preset enregistré : $name"},enabled=!busy&&presetName.isNotBlank()){Text("SAUVEGARDER PRESET")}
+ for(name in custom){Row(horizontalArrangement=Arrangement.spacedBy(4.dp)){OutlinedButton(onClick={runCatching{val v=prefs.getString(name,"")!!.split("|");require(v.size==6);kind=v[0];bpm=v[1].toFloat();pitch=v[2].toFloat();decay=v[3].toFloat();drive=v[4].toFloat();tone=v[5].toFloat();presetName=name}.onFailure{message="Preset illisible"}},enabled=!busy,modifier=Modifier.weight(1f)){Text(name)};OutlinedButton(onClick={prefs.edit().remove(name).apply();custom=prefs.all.keys.sorted()},enabled=!busy){Text("Suppr.")}}}
+ Button(onClick={val tempo=bpm.toInt();val p=pitch;val d=decay;val g=drive;val k=kind;val c=tone;start=0f;end=1f;edit("Son $k généré"){Wave(44100,1,SynthFactory.render(44100,tempo,k,p,d,g,c))}},enabled=!busy){Text("GÉNÉRER $kind")}
  if(busy) LinearProgressIndicator(Modifier.fillMaxWidth())
  wave?.let{w->
  val a=(start*w.frames).toInt().coerceIn(0,w.frames-1);val z=(end*w.frames).toInt().coerceIn(a+1,w.frames)
