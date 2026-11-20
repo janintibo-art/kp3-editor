@@ -32,8 +32,8 @@ jobs:
           path: moktek-kaoss-studio.apk
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: v9.0-${{ github.run_number }}
-          name: mokteK Kaoss Studio V9 (Tribe Sequencer)
+          tag_name: v10.0-${{ github.run_number }}
+          name: mokteK Kaoss Studio V10 (Live ergonomie)
           files: moktek-kaoss-studio.apk
       - uses: actions/upload-pages-artifact@v3
         with:
