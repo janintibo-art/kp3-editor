@@ -131,6 +131,7 @@ open class NativeActivity : ComponentActivity() {
     Text("● $status",color=if(status=="MIDI CONNECTÉ")Color(0xff83d377)else Bone,fontSize=11.sp,modifier=Modifier.weight(1f))
     CompactKey(if(stage)"SORTIR" else "SCÈNE",Modifier.width(58.dp),stage){stage=!stage;tab="LIVE"}
     Box { CompactKey("⋮",Modifier.width(44.dp)){menu=true};DropdownMenu(expanded=menu,onDismissRequest={menu=false}){
+     DropdownMenuItem(text={Text("Fichiers Korg et sauvegardes")},onClick={menu=false;tab="FICHIERS"})
      DropdownMenuItem(text={Text("Mémoires de programmes 1–8")},onClick={menu=false;memoryModel=model;tab="PROGRAMMES"})
      DropdownMenuItem(text={Text("Exporter le rapport de cet écran")},onClick={menu=false;scope.launch{delay(250);runCatching{report=TestReport.capture(this@NativeActivity,tab,status);reportPicker.launch("moktek_${tab.replace(" / ","_")}.zip")}.onFailure{message=it.message?:"Capture impossible"}}})
     }}
@@ -231,7 +232,8 @@ open class NativeActivity : ComponentActivity() {
      }
      if(memoryDialog>=0){AlertDialog(onDismissRequest={memoryDialog=-1},title={Text("Enregistrer M${memoryDialog+1} — $memoryModel")},text={Column{Text("Remplace la mémoire locale si elle existe.");OutlinedTextField(value=memoryName,onValueChange={memoryName=it.take(40)},label={Text("Nom")},singleLine=true)}},confirmButton={TextButton(onClick={val i=memoryDialog;val j=JSONObject().put("name",memoryName.trim().ifEmpty{"Mémoire ${i+1}"}).put("program",program).put("depth",depth).put("level",level).put("bpm",bpm).put("x",x).put("y",y);prefs.edit().putString(memoryKey(memoryModel,i),j.toString()).apply();memoryRevision++;selectedMemory=i;memoryDialog=-1;message="Mémoire locale enregistrée"}){Text("ENREGISTRER")}},dismissButton={TextButton(onClick={memoryDialog=-1}){Text("ANNULER")}})}
     }
-    "SESSIONS" -> {Text("SESSION LOCALE",color=Red,fontSize=22.sp);Key("SAUVEGARDER"){save()};Key("CHARGER"){load()};Key("PROGRAM MEMORY 1–8"){memoryModel=model;selectedMemory=-1;tab="PROGRAMMES"};Text("Une session native locale. Les anciennes sessions WebView restent séparées.")}
+    "FICHIERS" -> { KorgFileCenter() }
+    "SESSIONS" -> {Text("SESSION LOCALE",color=Red,fontSize=22.sp);Key("SAUVEGARDER"){save()};Key("CHARGER"){load()};Key("PROGRAM MEMORY 1–8"){memoryModel=model;selectedMemory=-1;tab="PROGRAMMES"};Key("FICHIERS / SAUVEGARDES"){tab="FICHIERS"};Text("Une session native locale. Les anciennes sessions WebView restent séparées.")}
     else -> { Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(5.dp)){CompactKey("BANQUES",Modifier.weight(1f),library){library=true};CompactKey("ÉDITEUR",Modifier.weight(1f),!library){library=false}};if(library) BankLibrary() else SampleStudio() }
    };if(message.isNotEmpty())Text(message,color=Bone);Text("mokteK • FREE PARTY / SOUND SYSTEM • V13",fontSize=11.sp,color=Color(0xffab9582))
   }}
