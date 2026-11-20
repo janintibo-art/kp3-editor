@@ -26,13 +26,13 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.abs
 
-private data class Wave(val rate:Int,val channels:Int,val pcm:ByteArray) {
+internal data class Wave(val rate:Int,val channels:Int,val pcm:ByteArray) {
  val frames get()=pcm.size/(channels*2)
  fun slice(a:Int,b:Int)=pcm.copyOfRange(a*channels*2,b*channels*2)
  fun peaks():FloatArray { val out=FloatArray(512); val buf=ByteBuffer.wrap(pcm).order(ByteOrder.LITTLE_ENDIAN); for(i in 0 until frames){val bin=(i.toLong()*512/frames).toInt();repeat(channels){out[bin]=maxOf(out[bin],abs(buf.short.toInt())/32768f)}};return out }
  fun export(a:Int,b:Int):ByteArray {val data=slice(a,b);return ByteBuffer.allocate(44+data.size).order(ByteOrder.LITTLE_ENDIAN).apply{put("RIFF".toByteArray());putInt(36+data.size);put("WAVEfmt ".toByteArray());putInt(16);putShort(1.toShort());putShort(channels.toShort());putInt(rate);putInt(rate*channels*2);putShort((channels*2).toShort());putShort(16.toShort());put("data".toByteArray());putInt(data.size);put(data)}.array()}
 }
-private fun loadWave(context:Context,uri:Uri):Wave {
+internal fun loadWave(context:Context,uri:Uri):Wave {
  val bytes=context.contentResolver.openInputStream(uri)?.use{input->val out=ByteArrayOutputStream();val chunk=ByteArray(16384);while(true){val n=input.read(chunk);if(n<0)break;require(out.size()+n<=32*1024*1024){"Fichier trop volumineux (32 Mio maximum)"};out.write(chunk,0,n)};out.toByteArray()}?:error("Lecture impossible")
  val b=ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
  fun tag(i:Int)=String(bytes,i,4,Charsets.US_ASCII)

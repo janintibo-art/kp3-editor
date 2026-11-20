@@ -103,7 +103,7 @@ open class NativeActivity : ComponentActivity() {
   fun changeProgram(d:Int){program=(program+d).coerceIn(0,if(model=="KP3")127 else 149); if(program<=127)send(192,program,0,2)else message="Programmes 129–150 : sélection MIDI à valider"}
   fun save(){ val a=JSONArray();motion.forEach{a.put(JSONArray().put(it.t).put(it.x).put(it.y).put(it.gate))};prefs.edit().putString("session",JSONObject().put("model",model).put("program",program).put("depth",depth).put("level",level).put("bpm",bpm).put("channel",channel).put("motion",a).toString()).apply();message="Session native sauvegardée" }
   fun load(){stop();recording=false;runCatching{val j=JSONObject(prefs.getString("session",null)?:error("Aucune session native"));model=j.getString("model");program=j.getInt("program");depth=j.getInt("depth");level=j.getInt("level");bpm=j.getInt("bpm");channel=j.getInt("channel");motion.clear();val a=j.getJSONArray("motion");for(i in 0 until a.length()){val m=a.getJSONArray(i);motion.add(Motion(m.getLong(0),m.getInt(1),m.getInt(2),m.getInt(3)))};message="Session chargée localement (sans envoi MIDI)"}.onFailure{message=it.message?:"Erreur"} }
-  var menu by remember { mutableStateOf(false) }
+  var library by remember { mutableStateOf(true) }; var menu by remember { mutableStateOf(false) }
   val scroll=rememberScrollState()
   LaunchedEffect(tab,stage){scroll.scrollTo(0)}
   Surface(modifier=Modifier.fillMaxSize(),color=Ink){Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(6.dp),verticalArrangement=Arrangement.spacedBy(5.dp)){
@@ -174,8 +174,8 @@ open class NativeActivity : ComponentActivity() {
     "MOTION" -> { Text("XY / AUTOMATION",color=Red,fontSize=22.sp);Text("${motion.size} événements • ${motion.lastOrNull()?.t ?: 0} ms");Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){Key(if(recording)"FIN REC" else "REC",recording){if(recording)recording=false else{stop();motion.clear();base=android.os.SystemClock.elapsedRealtime();recording=true;tab="LIVE"}};Key("PLAY",playing){play()};Key("STOP"){stop();recording=false};Key("LOOP",loop){loop=!loop}};Text("REC ouvre le pad Live. Revenir ici pour terminer la capture.") }
     "MIDI / USB" -> {Text("CONNEXIONS",color=Red,fontSize=22.sp);Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){Key("ACTUALISER"){scan()};Key("DÉCONNECTER"){stop();closeMidi()}};Text("Canal MIDI : $channel");Slider(value=channel.toFloat(),onValueChange={channel=it.toInt().coerceIn(1,16)},valueRange=1f..16f,steps=14);if(endpoints.isEmpty())Text("Aucun port MIDI Android détecté. Vérifier OTG ou interface DIN.");endpoints.forEach{ e->Key(e.label){connect(e)}};val usb=context.getSystemService(USB_SERVICE) as? UsbManager;Text("USB : "+(usb?.deviceList?.values?.joinToString { "%04X:%04X".format(it.vendorId,it.productId) }?.ifEmpty{"aucun"}?:"indisponible"));Text("Journal émission (simulation comprise)");logs.take(25).forEach{Text(it,fontSize=12.sp)} }
     "SESSIONS" -> {Text("SESSION LOCALE",color=Red,fontSize=22.sp);Key("SAUVEGARDER"){save()};Key("CHARGER"){load()};Text("Une session native locale. Les anciennes sessions WebView restent séparées.")}
-    else -> { SampleStudio() }
-   };if(message.isNotEmpty())Text(message,color=Bone);Text("mokteK • FREE PARTY / SOUND SYSTEM • V10",fontSize=11.sp,color=Color(0xffab9582))
+    else -> { Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(5.dp)){CompactKey("BANQUES",Modifier.weight(1f),library){library=true};CompactKey("ÉDITEUR",Modifier.weight(1f),!library){library=false}};if(library) BankLibrary() else SampleStudio() }
+   };if(message.isNotEmpty())Text(message,color=Bone);Text("mokteK • FREE PARTY / SOUND SYSTEM • V11",fontSize=11.sp,color=Color(0xffab9582))
   }}
  }
 }
