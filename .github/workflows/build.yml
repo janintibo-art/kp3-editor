@@ -32,8 +32,8 @@ jobs:
           path: moktek-kaoss-studio.apk
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: v11.0-${{ github.run_number }}
-          name: mokteK Kaoss Studio V11 (Sample Librarian)
+          tag_name: v12.0-${{ github.run_number }}
+          name: mokteK Kaoss Studio V12 (Program Memory)
           files: moktek-kaoss-studio.apk
       - uses: actions/upload-pages-artifact@v3
         with:

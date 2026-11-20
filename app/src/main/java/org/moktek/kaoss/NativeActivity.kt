@@ -103,6 +103,17 @@ open class NativeActivity : ComponentActivity() {
   fun changeProgram(d:Int){program=(program+d).coerceIn(0,if(model=="KP3")127 else 149); if(program<=127)send(192,program,0,2)else message="Programmes 129–150 : sélection MIDI à valider"}
   fun save(){ val a=JSONArray();motion.forEach{a.put(JSONArray().put(it.t).put(it.x).put(it.y).put(it.gate))};prefs.edit().putString("session",JSONObject().put("model",model).put("program",program).put("depth",depth).put("level",level).put("bpm",bpm).put("channel",channel).put("motion",a).toString()).apply();message="Session native sauvegardée" }
   fun load(){stop();recording=false;runCatching{val j=JSONObject(prefs.getString("session",null)?:error("Aucune session native"));model=j.getString("model");program=j.getInt("program");depth=j.getInt("depth");level=j.getInt("level");bpm=j.getInt("bpm");channel=j.getInt("channel");motion.clear();val a=j.getJSONArray("motion");for(i in 0 until a.length()){val m=a.getJSONArray(i);motion.add(Motion(m.getLong(0),m.getInt(1),m.getInt(2),m.getInt(3)))};message="Session chargée localement (sans envoi MIDI)"}.onFailure{message=it.message?:"Erreur"} }
+  var memoryRevision by remember { mutableIntStateOf(0) }
+  var memoryDialog by remember { mutableIntStateOf(-1) }
+  var memoryName by remember { mutableStateOf("") }
+  var memoryModel by remember { mutableStateOf("KP3") }
+  var selectedMemory by remember { mutableIntStateOf(-1) }
+  fun memoryKey(m:String,i:Int)="program_memory_${m}_$i"
+  fun readMemory(m:String,i:Int):JSONObject?=runCatching { JSONObject(prefs.getString(memoryKey(m,i),null) ?: return null) }.getOrNull()
+  fun recallMemory(m:String,i:Int){
+   val j=readMemory(m,i)?:return
+   stop();recording=false;model=m;program=j.optInt("program").coerceIn(0,if(m=="KP3")127 else 149);depth=j.optInt("depth",100).coerceIn(0,127);level=j.optInt("level",100).coerceIn(0,127);bpm=j.optInt("bpm",174).coerceIn(40,300);x=j.optInt("x",64).coerceIn(0,127);y=j.optInt("y",64).coerceIn(0,127);hold=false;selectedMemory=i;message="Mémoire ${i+1} rappelée localement. Aucun envoi de programme automatique."
+  }
   var library by remember { mutableStateOf(true) }; var menu by remember { mutableStateOf(false) }
   val scroll=rememberScrollState()
   LaunchedEffect(tab,stage){scroll.scrollTo(0)}
@@ -112,6 +123,7 @@ open class NativeActivity : ComponentActivity() {
     Text("● $status",color=if(status=="MIDI CONNECTÉ")Color(0xff83d377)else Bone,fontSize=11.sp,modifier=Modifier.weight(1f))
     CompactKey(if(stage)"SORTIR" else "SCÈNE",Modifier.width(58.dp),stage){stage=!stage;tab="LIVE"}
     Box { CompactKey("⋮",Modifier.width(44.dp)){menu=true};DropdownMenu(expanded=menu,onDismissRequest={menu=false}){
+     DropdownMenuItem(text={Text("Mémoires de programmes 1–8")},onClick={menu=false;memoryModel=model;tab="PROGRAMMES"})
      DropdownMenuItem(text={Text("Exporter le rapport de cet écran")},onClick={menu=false;scope.launch{delay(250);runCatching{report=TestReport.capture(this@NativeActivity,tab,status);reportPicker.launch("moktek_${tab.replace(" / ","_")}.zip")}.onFailure{message=it.message?:"Capture impossible"}}})
     }}
    }
@@ -143,7 +155,7 @@ open class NativeActivity : ComponentActivity() {
      Text("Tempo local • sans horloge MIDI",fontSize=10.sp,color=Bone)
      }
      val touch: @Composable ()->Unit = {
-     Canvas(Modifier.fillMaxWidth().height(if(shortScreen) 150.dp else if(wide) 235.dp else if(stage) 300.dp else (config.screenHeightDp*0.30f).coerceIn(150f,280f).dp).border(2.dp,Red,RoundedCornerShape(9.dp)).pointerInput(hold,recording,channel){awaitEachGesture { val down=awaitFirstDown(requireUnconsumed=false);stop();fun value(p:Offset,g:Int){point((p.x/size.width*127).toInt().coerceIn(0,127),(127-p.y/size.height*127).toInt().coerceIn(0,127),g)};value(down.position,127);down.consume();var last=0L;try{do{val e=awaitPointerEvent();val c=e.changes.firstOrNull{it.id==down.id}?:break;if(c.pressed&&c.uptimeMillis-last>=16){value(c.position,-1);last=c.uptimeMillis};c.consume()}while(c.pressed)}finally{if(!hold){cc(92,0);if(recording&&motion.size<10000)motion.add(Motion(android.os.SystemClock.elapsedRealtime()-base,x,y,0))}} } }){
+     Canvas(Modifier.fillMaxWidth().height(if(shortScreen) 150.dp else if(wide) 235.dp else if(stage) 300.dp else (config.screenHeightDp*0.30f).coerceIn(150f,280f).dp).clip(RoundedCornerShape(9.dp)).border(2.dp,Red,RoundedCornerShape(9.dp)).pointerInput(hold,recording,channel){awaitEachGesture { val down=awaitFirstDown(requireUnconsumed=false);stop();fun value(p:Offset,g:Int){point((p.x/size.width*127).toInt().coerceIn(0,127),(127-p.y/size.height*127).toInt().coerceIn(0,127),g)};value(down.position,127);down.consume();var last=0L;try{do{val e=awaitPointerEvent();val c=e.changes.firstOrNull{it.id==down.id}?:break;if(c.pressed&&c.uptimeMillis-last>=16){value(c.position,-1);last=c.uptimeMillis};c.consume()}while(c.pressed)}finally{if(!hold){cc(92,0);if(recording&&motion.size<10000)motion.add(Motion(android.os.SystemClock.elapsedRealtime()-base,x,y,0))}} } }){
       drawRect(Brush.radialGradient(listOf(Color(0xff56171a),Color(0xff19090c)),center=Offset(size.width*x/127f,size.height*(127-y)/127f),radius=size.width*.8f));for(i in 0..8){val px=size.width*i/8;val py=size.height*i/8;drawLine(Red.copy(alpha=.23f),Offset(px,0f),Offset(px,size.height));drawLine(Red.copy(alpha=.23f),Offset(0f,py),Offset(size.width,py))};val spiral=androidx.compose.ui.graphics.Path();val radius=size.minDimension*.44f;for(i in 0..150){val t=i/150f;val a=t*15.7f;val px=center.x+kotlin.math.cos(a)*radius*t;val py=center.y+kotlin.math.sin(a)*radius*t;if(i==0)spiral.moveTo(px,py)else spiral.lineTo(px,py)};drawPath(spiral,Red.copy(alpha=.16f),style=Stroke(4.dp.toPx()));val p=Offset(size.width*x/127f,size.height*(127-y)/127f);drawLine(Red,Offset(p.x,0f),Offset(p.x,size.height),2f);drawLine(Red,Offset(0f,p.y),Offset(size.width,p.y),2f);drawCircle(Red.copy(alpha=.25f),35f,p);drawCircle(Red.copy(alpha=.12f),55f,p);drawCircle(Red,19f,p,style=Stroke(2.dp.toPx()));drawCircle(Bone,7f,p);drawRect(Steel.copy(alpha=.45f),style=Stroke(3.dp.toPx()))
      }
      Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)){listOf("A","B","C","D").forEachIndexed { i,s -> Button(onClick={flashes[i]=true;val ch=channel;send(144,36+i,127);scope.launch{delay(100);flashes[i]=false;val old=channel;channel=ch;send(128,36+i,0);channel=old}},modifier=Modifier.weight(1f).height(48.dp),shape=RoundedCornerShape(6.dp),colors=ButtonDefaults.buttonColors(containerColor=if(flashes[i])Red else Color(0xff651d1d),contentColor=Bone)){Text(s,fontSize=19.sp,fontWeight=FontWeight.Bold)} }}
@@ -173,9 +185,35 @@ open class NativeActivity : ComponentActivity() {
     }
     "MOTION" -> { Text("XY / AUTOMATION",color=Red,fontSize=22.sp);Text("${motion.size} événements • ${motion.lastOrNull()?.t ?: 0} ms");Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){Key(if(recording)"FIN REC" else "REC",recording){if(recording)recording=false else{stop();motion.clear();base=android.os.SystemClock.elapsedRealtime();recording=true;tab="LIVE"}};Key("PLAY",playing){play()};Key("STOP"){stop();recording=false};Key("LOOP",loop){loop=!loop}};Text("REC ouvre le pad Live. Revenir ici pour terminer la capture.") }
     "MIDI / USB" -> {Text("CONNEXIONS",color=Red,fontSize=22.sp);Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){Key("ACTUALISER"){scan()};Key("DÉCONNECTER"){stop();closeMidi()}};Text("Canal MIDI : $channel");Slider(value=channel.toFloat(),onValueChange={channel=it.toInt().coerceIn(1,16)},valueRange=1f..16f,steps=14);if(endpoints.isEmpty())Text("Aucun port MIDI Android détecté. Vérifier OTG ou interface DIN.");endpoints.forEach{ e->Key(e.label){connect(e)}};val usb=context.getSystemService(USB_SERVICE) as? UsbManager;Text("USB : "+(usb?.deviceList?.values?.joinToString { "%04X:%04X".format(it.vendorId,it.productId) }?.ifEmpty{"aucun"}?:"indisponible"));Text("Journal émission (simulation comprise)");logs.take(25).forEach{Text(it,fontSize=12.sp)} }
-    "SESSIONS" -> {Text("SESSION LOCALE",color=Red,fontSize=22.sp);Key("SAUVEGARDER"){save()};Key("CHARGER"){load()};Text("Une session native locale. Les anciennes sessions WebView restent séparées.")}
+    "PROGRAMMES" -> {
+     Rack("PROGRAM MEMORY / 1–8"){
+      Text("Huit mémoires locales par modèle",color=Bone,fontSize=13.sp)
+      Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(5.dp)){
+       CompactKey("KP3",Modifier.weight(1f),memoryModel=="KP3"){memoryModel="KP3";selectedMemory=-1}
+       CompactKey("KP3+",Modifier.weight(1f),memoryModel=="KP3+"){memoryModel="KP3+";selectedMemory=-1}
+      }
+      Text("Réglages LIVE actuels : $model • P.${(program+1).toString().padStart(3,'0')} • $bpm BPM",color=Red,fontSize=12.sp)
+      Text("Appuyer sur une mémoire pour la rappeler. ENREG. copie les réglages LIVE du modèle correspondant.",fontSize=12.sp)
+      val revision=memoryRevision
+      for(i in 0..7){
+       val saved=remember(memoryModel,i,revision){readMemory(memoryModel,i)}
+       Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(4.dp),verticalAlignment=Alignment.CenterVertically){
+        Column(Modifier.weight(1f).clip(RoundedCornerShape(5.dp)).background(if(selectedMemory==i)Color(0xff72201e)else Panel).border(1.dp,if(selectedMemory==i)Red else Steel,RoundedCornerShape(5.dp)).clickable(enabled=saved!=null){recallMemory(memoryModel,i)}.padding(8.dp)){
+         Text("M${i+1} • "+(saved?.optString("name")?:"VIDE"),fontWeight=FontWeight.Bold,color=Bone,fontSize=13.sp,maxLines=1)
+         Text(if(saved==null)"Aucun programme" else "P.${(saved.optInt("program")+1).toString().padStart(3,'0')} • ${saved.optInt("bpm")} BPM",fontSize=11.sp,color=Red)
+        }
+        CompactKey("ENREG.",Modifier.width(65.dp)){if(memoryModel!=model){message="Sélectionner $memoryModel dans LIVE avant de mémoriser"}else{memoryName=saved?.optString("name")?:"Mémoire ${i+1}";memoryDialog=i}}
+       }
+      }
+      CompactKey("RETOUR LIVE",Modifier.fillMaxWidth()){tab="LIVE"}
+      CompactKey("ENVOYER PROGRAMME MIDI",Modifier.fillMaxWidth()){if(memoryModel!=model||selectedMemory<0){message="Rappeler une mémoire de ce modèle d’abord"}else if(program>127){message="Programmes 129–150 : transfert non implémenté"}else{send(192,program,0,2);message="Program Change envoyé au port MIDI ou journalisé en simulation"}}
+      Text("Les mémoires internes du Kaoss Pad ne sont pas modifiées. BPM, XY et niveaux restent locaux.",fontSize=11.sp,color=Bone)
+     }
+     if(memoryDialog>=0){AlertDialog(onDismissRequest={memoryDialog=-1},title={Text("Enregistrer M${memoryDialog+1} — $memoryModel")},text={Column{Text("Remplace la mémoire locale si elle existe.");OutlinedTextField(value=memoryName,onValueChange={memoryName=it.take(40)},label={Text("Nom")},singleLine=true)}},confirmButton={TextButton(onClick={val i=memoryDialog;val j=JSONObject().put("name",memoryName.trim().ifEmpty{"Mémoire ${i+1}"}).put("program",program).put("depth",depth).put("level",level).put("bpm",bpm).put("x",x).put("y",y);prefs.edit().putString(memoryKey(memoryModel,i),j.toString()).apply();memoryRevision++;selectedMemory=i;memoryDialog=-1;message="Mémoire locale enregistrée"}){Text("ENREGISTRER")}},dismissButton={TextButton(onClick={memoryDialog=-1}){Text("ANNULER")}})}
+    }
+    "SESSIONS" -> {Text("SESSION LOCALE",color=Red,fontSize=22.sp);Key("SAUVEGARDER"){save()};Key("CHARGER"){load()};Key("PROGRAM MEMORY 1–8"){memoryModel=model;selectedMemory=-1;tab="PROGRAMMES"};Text("Une session native locale. Les anciennes sessions WebView restent séparées.")}
     else -> { Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(5.dp)){CompactKey("BANQUES",Modifier.weight(1f),library){library=true};CompactKey("ÉDITEUR",Modifier.weight(1f),!library){library=false}};if(library) BankLibrary() else SampleStudio() }
-   };if(message.isNotEmpty())Text(message,color=Bone);Text("mokteK • FREE PARTY / SOUND SYSTEM • V11",fontSize=11.sp,color=Color(0xffab9582))
+   };if(message.isNotEmpty())Text(message,color=Bone);Text("mokteK • FREE PARTY / SOUND SYSTEM • V12",fontSize=11.sp,color=Color(0xffab9582))
   }}
  }
 }
