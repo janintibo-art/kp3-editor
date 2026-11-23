@@ -12,6 +12,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import zipfile
 import io
+from midi_profiles import MidiProfileWindow
 
 try:
     import mido
@@ -61,7 +62,7 @@ def hexbytes(data):
 class KorgConnectionCenter(tk.Toplevel):
     def __init__(self, master):
         super().__init__(master)
-        self.title('mokteK // KORG CONNECTION CENTER  •  V10')
+        self.title('mokteK // KORG CONNECTION CENTER  •  V11')
         self.geometry('950x720')
         self.minsize(760, 590)
         self.configure(bg=BG)
@@ -70,6 +71,7 @@ class KorgConnectionCenter(tk.Toplevel):
         self.queue = queue.Queue(maxsize=256)
         self.events = deque(maxlen=400)
         self.identity = None
+        self.profiles_window = None
         self.selected_input = tk.StringVar()
         self.selected_output = tk.StringVar()
         self.model_hint = tk.StringVar(value='Inconnu (non vérifié)')
@@ -108,6 +110,7 @@ class KorgConnectionCenter(tk.Toplevel):
         for title, command in [('ACTUALISER', self.refresh), ('CONNECTER', self.connect),
                                ('DÉCONNECTER', self.disconnect), ('DEMANDER IDENTITÉ', self.request_identity)]:
             self.button(controls, title, command).pack(side='left', padx=(0, 6))
+        self.button(panel, 'PROFILS MIDI KP3 / KP3+  •  V11', self.open_profiles).pack(anchor='w', pady=(4, 6))
         self.label(panel, 'Sélection de modèle (indication manuelle, jamais preuve d’identification)', 9, MUTED).pack(anchor='w', pady=(7, 3))
         ttk.Combobox(panel, textvariable=self.model_hint,
                      values=['Inconnu (non vérifié)', 'KP3 (déclaré)', 'KP3+ (déclaré)'],
@@ -230,19 +233,25 @@ class KorgConnectionCenter(tk.Toplevel):
                 self.state.set('IDENTITÉ MIDI REÇUE — modèle exact non vérifié')
         self.after_id = self.after(100, self.drain)
 
+    def open_profiles(self):
+        if self.profiles_window is not None and self.profiles_window.winfo_exists():
+            self.profiles_window.lift()
+            return
+        self.profiles_window = MidiProfileWindow(self)
+
     def export_report(self):
         path = filedialog.asksaveasfilename(parent=self, defaultextension='.zip',
-                    initialfile='moktek_korg_diagnostic_v10.zip',
+                    initialfile='moktek_korg_diagnostic_v11.zip',
                     filetypes=[('Archive ZIP', '*.zip')])
         if not path:
             return
         report = {
-            'application': 'mokteK Kaoss Studio Windows', 'module': 'Korg Connection Center V10',
+            'application': 'mokteK Kaoss Studio Windows', 'module': 'Korg Connection Center V11',
             'date': datetime.now().isoformat(timespec='seconds'),
             'modele_declare': self.model_hint.get(), 'identite_midi': self.identity,
             'entree': self.selected_input.get(), 'sortie': self.selected_output.get(),
             'etat': self.state.get(), 'transfert_memoire': 'non supporté',
-            'tests_materiels_valides': False,
+            'tests_materiels_valides': False, 'profils_midi': 'locaux, non vérifiés sur KP3/KP3+',
         }
         try:
             with zipfile.ZipFile(path, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
@@ -256,6 +265,8 @@ class KorgConnectionCenter(tk.Toplevel):
             messagebox.showerror('Export impossible', str(exc), parent=self)
 
     def close(self):
+        if self.profiles_window is not None and self.profiles_window.winfo_exists():
+            self.profiles_window.destroy()
         if self.after_id is not None:
             self.after_cancel(self.after_id)
             self.after_id = None
