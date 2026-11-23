@@ -5,13 +5,14 @@ import winsound
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+from arranger_ui import SongArranger
 from sequencer_engine import TRACKS, SOUNDS, DEFAULT_SOUNDS, default_pattern, render, export_wav, librarian_choices, default_step_settings, validate_step_settings, render_chain
 BG='#100f10';PANEL='#211d1a';RED='#ff493e';STEEL='#887766';TEXT='#e9dac2';MUTED='#b9a99b'
 
 class TribeSequencer(tk.Toplevel):
     def __init__(self, parent, data_dir):
         super().__init__(parent)
-        self.title('mokteK // TRIBE SEQUENCER • Windows V8')
+        self.title('mokteK // TRIBE SEQUENCER • Windows V9')
         self.geometry('1240x690');self.minsize(880,510);self.configure(bg=BG)
         self.data_dir=Path(data_dir);self.preview_path=None
         self.steps=tk.IntVar(value=16);self.bpm=tk.IntVar(value=174)
@@ -33,7 +34,7 @@ class TribeSequencer(tk.Toplevel):
         self.buttons=[]
         top=tk.Frame(self,bg='#332b25',padx=14,pady=12);top.pack(fill='x')
         tk.Label(top,text='TRIBE SEQUENCER  //  6 TRACKS',bg='#332b25',fg=RED,font=('Segoe UI',19,'bold')).pack(side='left')
-        tk.Label(top,text='V8  •  16 / 32 / 64 STEPS',bg='#332b25',fg=MUTED,font=('Segoe UI',10,'bold')).pack(side='right')
+        tk.Label(top,text='V9  •  16 / 32 / 64 STEPS',bg='#332b25',fg=MUTED,font=('Segoe UI',10,'bold')).pack(side='right')
         tk.Frame(self,bg=RED,height=3).pack(fill='x')
         controls=tk.Frame(self,bg=PANEL,padx=12,pady=12);controls.pack(fill='x',padx=12,pady=(10,4))
         self.label(controls,'STYLE').pack(side='left')
@@ -59,6 +60,7 @@ class TribeSequencer(tk.Toplevel):
         tk.Entry(chain,textvariable=self.order,width=20,bg='#150e0e',fg=TEXT,insertbackground=TEXT).pack(side='left',padx=5)
         self.button(chain,'▶ CHAÎNE',self.preview_chain).pack(side='left',padx=3)
         self.button(chain,'EXPORT CHAÎNE',self.export_chain).pack(side='left',padx=3)
+        self.button(chain,'ARRANGEUR V9',self.open_arranger).pack(side='right',padx=3)
         grid_box=tk.Frame(self,bg=PANEL,padx=8,pady=10);grid_box.pack(fill='both',expand=True,padx=12,pady=7)
         tk.Label(grid_box,text='Clic = activer/désactiver  •  Clic droit = vélocité / probabilité / roulement  •  Défilement horizontal',bg=PANEL,fg=MUTED,anchor='w').pack(fill='x',pady=(0,7))
         container=tk.Frame(grid_box,bg=PANEL);container.pack(fill='both',expand=True)
@@ -153,6 +155,11 @@ class TribeSequencer(tk.Toplevel):
     def export_chain(self):
         self.export_audio(self.chain_audio,'moktek-chaine-v8.wav')
 
+    def open_arranger(self):
+        if hasattr(self,"arranger_window") and self.arranger_window.winfo_exists():
+            self.arranger_window.lift();return
+        self.arranger_window=SongArranger(self,self)
+
     def redraw(self):
         if not hasattr(self,'inner'):return
         for widget in self.inner.winfo_children():widget.destroy()
@@ -212,7 +219,7 @@ class TribeSequencer(tk.Toplevel):
         try:
             export_wav(path,producer());self.status.set('WAV exporté : '+Path(path).name)
         except Exception as exc:messagebox.showerror('Export',str(exc),parent=self)
-    def export(self):self.export_audio(self.audio,'moktek-tribe-v8.wav')
+    def export(self):self.export_audio(self.audio,'moktek-tribe-v9.wav')
     def save_pattern(self):
         self.data_dir.mkdir(parents=True,exist_ok=True)
         path=filedialog.asksaveasfilename(parent=self,initialdir=str(self.data_dir),defaultextension='.json',initialfile='tribe-pattern.json',filetypes=[('Pattern mokteK','*.json')])
