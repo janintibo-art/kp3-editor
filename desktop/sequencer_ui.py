@@ -5,13 +5,13 @@ import winsound
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-from sequencer_engine import TRACKS, SOUNDS, DEFAULT_SOUNDS, default_pattern, render, export_wav, librarian_choices
+from sequencer_engine import TRACKS, SOUNDS, DEFAULT_SOUNDS, default_pattern, render, export_wav, librarian_choices, default_step_settings, validate_step_settings, render_chain
 BG='#100f10';PANEL='#211d1a';RED='#ff493e';STEEL='#887766';TEXT='#e9dac2';MUTED='#b9a99b'
 
 class TribeSequencer(tk.Toplevel):
     def __init__(self, parent, data_dir):
         super().__init__(parent)
-        self.title('mokteK // TRIBE SEQUENCER • Windows V7')
+        self.title('mokteK // TRIBE SEQUENCER • Windows V8')
         self.geometry('1240x690');self.minsize(880,510);self.configure(bg=BG)
         self.data_dir=Path(data_dir);self.preview_path=None
         self.steps=tk.IntVar(value=16);self.bpm=tk.IntVar(value=174)
@@ -25,11 +25,15 @@ class TribeSequencer(tk.Toplevel):
         self.extra_sounds={}
         self.refresh_librarian_choices()
         self.pattern=default_pattern('TRIBE',16)
+        self.step_settings=default_step_settings(16)
+        self.slots={}
+        self.slot=tk.StringVar(value="A")
+        self.order=tk.StringVar(value="A B A C")
         self.status=tk.StringVar(value='Séquenceur local • lecture WAV Windows • aucun transfert matériel')
         self.buttons=[]
         top=tk.Frame(self,bg='#332b25',padx=14,pady=12);top.pack(fill='x')
         tk.Label(top,text='TRIBE SEQUENCER  //  6 TRACKS',bg='#332b25',fg=RED,font=('Segoe UI',19,'bold')).pack(side='left')
-        tk.Label(top,text='V7  •  16 / 32 / 64 STEPS',bg='#332b25',fg=MUTED,font=('Segoe UI',10,'bold')).pack(side='right')
+        tk.Label(top,text='V8  •  16 / 32 / 64 STEPS',bg='#332b25',fg=MUTED,font=('Segoe UI',10,'bold')).pack(side='right')
         tk.Frame(self,bg=RED,height=3).pack(fill='x')
         controls=tk.Frame(self,bg=PANEL,padx=12,pady=12);controls.pack(fill='x',padx=12,pady=(10,4))
         self.label(controls,'STYLE').pack(side='left')
@@ -46,8 +50,17 @@ class TribeSequencer(tk.Toplevel):
         tk.Spinbox(controls,from_=1,to=16,textvariable=self.repeat,width=4,bg='#150e0e',fg=TEXT,buttonbackground=PANEL).pack(side='left',padx=6)
         self.button(controls,'EFFACER',self.clear_pattern).pack(side='right',padx=4)
         self.button(controls,'↻ SAMPLES',self.refresh_samples).pack(side='right',padx=4)
+        chain=tk.Frame(self,bg=PANEL,padx=10,pady=5);chain.pack(fill='x',padx=12,pady=(1,0))
+        self.label(chain,'PATTERN').pack(side='left')
+        ttk.Combobox(chain,textvariable=self.slot,values=['A','B','C','D'],width=4,state='readonly').pack(side='left',padx=5)
+        self.button(chain,'MÉMORISER',self.store_slot).pack(side='left',padx=3)
+        self.button(chain,'RAPPELER',self.recall_slot).pack(side='left',padx=3)
+        self.label(chain,'CHAÎNE A–D').pack(side='left',padx=(15,4))
+        tk.Entry(chain,textvariable=self.order,width=20,bg='#150e0e',fg=TEXT,insertbackground=TEXT).pack(side='left',padx=5)
+        self.button(chain,'▶ CHAÎNE',self.preview_chain).pack(side='left',padx=3)
+        self.button(chain,'EXPORT CHAÎNE',self.export_chain).pack(side='left',padx=3)
         grid_box=tk.Frame(self,bg=PANEL,padx=8,pady=10);grid_box.pack(fill='both',expand=True,padx=12,pady=7)
-        tk.Label(grid_box,text='Clic pour activer/désactiver un pas   •   Défilement horizontal pour 32/64 pas',bg=PANEL,fg=MUTED,anchor='w').pack(fill='x',pady=(0,7))
+        tk.Label(grid_box,text='Clic = activer/désactiver  •  Clic droit = vélocité / probabilité / roulement  •  Défilement horizontal',bg=PANEL,fg=MUTED,anchor='w').pack(fill='x',pady=(0,7))
         container=tk.Frame(grid_box,bg=PANEL);container.pack(fill='both',expand=True)
         self.scroll=tk.Canvas(container,bg=PANEL,highlightthickness=0)
         scrollbar=tk.Scrollbar(container,orient='horizontal',command=self.scroll.xview)
@@ -72,14 +85,74 @@ class TribeSequencer(tk.Toplevel):
         except tk.TclError:return
         if count not in (16,32,64):return
         for row in self.pattern:row[:]=row[:count]+[False]*max(0,count-len(row))
+        self.step_settings=[r[:count]+[[100,100,1] for _ in range(max(0,count-len(r)))] for r in self.step_settings]
         self.redraw()
     def load_style(self):
-        self.stop();self.pattern=default_pattern(self.style.get(),self.steps.get());self.redraw();self.status.set('Style chargé : '+self.style.get())
+        self.stop();self.pattern=default_pattern(self.style.get(),self.steps.get());self.step_settings=default_step_settings(self.steps.get());self.redraw();self.status.set('Style chargé : '+self.style.get())
     def clear_pattern(self):
-        self.stop();self.pattern=[[False]*self.steps.get() for _ in TRACKS];self.redraw()
+        self.stop();self.pattern=[[False]*self.steps.get() for _ in TRACKS];self.step_settings=default_step_settings(self.steps.get());self.redraw()
     def toggle(self,track,step):
         self.pattern[track][step]=not self.pattern[track][step]
-        self.buttons[track][step].configure(bg=RED if self.pattern[track][step] else ('#382c29' if (step//4)%2==0 else '#241a1a'))
+        self.paint_step(track,step)
+    def paint_step(self,track,step):
+        b=self.buttons[track][step]
+        velocity,probability,ratchets=self.step_settings[track][step]
+        base='#382c29' if (step//4)%2==0 else '#241a1a'
+        active=self.pattern[track][step]
+        b.configure(bg=('#ff493e' if velocity>=100 else '#aa3833') if active else base,
+                    text=(str(ratchets) if ratchets>1 else ('?' if probability<100 else '')) if active else '',
+                    fg='#ffffff',font=('Consolas',8,'bold'))
+
+    def edit_step(self,track,step):
+        editor=tk.Toplevel(self);editor.title(f'{TRACKS[track]} / pas {step+1}')
+        editor.configure(bg=PANEL);editor.resizable(False,False);editor.transient(self);editor.grab_set()
+        old=self.step_settings[track][step]
+        velocity=tk.IntVar(value=old[0]);probability=tk.IntVar(value=old[1]);ratchets=tk.IntVar(value=old[2])
+        for label,var,lo,hi in [('Vélocité MIDI (0–127)',velocity,0,127),('Probabilité (%)',probability,0,100),('Roulements (1–4)',ratchets,1,4)]:
+            tk.Label(editor,text=label,bg=PANEL,fg=TEXT).pack(anchor='w',padx=15,pady=(10,0))
+            tk.Scale(editor,from_=lo,to=hi,variable=var,orient='horizontal',length=290,
+                     bg=PANEL,fg=TEXT,troughcolor='#62221f',highlightthickness=0).pack(padx=15)
+        def accept():
+            self.step_settings[track][step]=[velocity.get(),probability.get(),ratchets.get()]
+            self.paint_step(track,step);editor.destroy()
+        self.button(editor,'VALIDER',accept).pack(fill='x',padx=15,pady=12)
+
+    def snapshot(self):
+        return {'steps':self.steps.get(),'pattern':[list(r) for r in self.pattern],
+                'step_settings':[[list(v) for v in r] for r in self.step_settings]}
+
+    def store_slot(self):
+        self.slots[self.slot.get()]=self.snapshot()
+        self.status.set(f'Pattern {self.slot.get()} mémorisé dans ce projet (sauvegarder en JSON)')
+
+    def recall_slot(self):
+        value=self.slots.get(self.slot.get())
+        if value is None:
+            self.status.set('Emplacement vide : mémoriser un pattern d’abord');return
+        self.stop();self.steps.set(value['steps']);self.pattern=[list(r) for r in value['pattern']]
+        self.step_settings=[[list(v) for v in row] for row in value['step_settings']]
+        self.redraw();self.status.set('Pattern '+self.slot.get()+' rappelé')
+
+    def chain_order(self):
+        order=''.join(self.order.get().upper().split())
+        if not 1<=len(order)<=32 or any(c not in 'ABCD' for c in order):
+            raise ValueError('Chaîne : uniquement A, B, C, D (32 patterns maximum)')
+        return order
+
+    def chain_audio(self):
+        bpm,steps,reps=self.inputs()
+        patterns=dict(self.slots)
+        patterns[self.slot.get()]=self.snapshot()
+        return render_chain(patterns,self.chain_order(),bpm,[v.get() for v in self.sounds],
+                            [v.get() for v in self.volumes],[v.get() for v in self.mutes],
+                            [v.get() for v in self.solos],self.swing.get(),self.data_dir)
+
+    def preview_chain(self):
+        self.play_pcm(self.chain_audio,'Chaîne')
+
+    def export_chain(self):
+        self.export_audio(self.chain_audio,'moktek-chaine-v8.wav')
+
     def redraw(self):
         if not hasattr(self,'inner'):return
         for widget in self.inner.winfo_children():widget.destroy()
@@ -101,8 +174,11 @@ class TribeSequencer(tk.Toplevel):
                 base='#382c29' if (step//4)%2==0 else '#241a1a'
                 b=tk.Button(self.inner,width=2,height=1,relief='flat',bg=RED if enabled else base,activebackground='#ff9d8e',command=lambda tr=ti,s=step:self.toggle(tr,s))
                 b.grid(row=ti+1,column=step+1,padx=1,pady=5,sticky='ns')
+                b.bind('<Button-3>',lambda event,tr=ti,st=step:self.edit_step(tr,st))
                 buttons.append(b)
             self.buttons.append(buttons)
+        for ti,row in enumerate(self.buttons):
+            for si,_ in enumerate(row):self.paint_step(ti,si)
         self.scroll.xview_moveto(0)
     def inputs(self):
         try:
@@ -113,33 +189,35 @@ class TribeSequencer(tk.Toplevel):
     def audio(self):
         bpm,steps,reps=self.inputs()
         swing=self.swing.get()
-        return render(self.pattern,bpm,steps,[s.get() for s in self.sounds],[v.get() for v in self.volumes],bars=reps,mutes=[v.get() for v in self.mutes],solos=[v.get() for v in self.solos],swing=swing,data_dir=self.data_dir)
+        return render(self.pattern,bpm,steps,[s.get() for s in self.sounds],[v.get() for v in self.volumes],bars=reps,mutes=[v.get() for v in self.mutes],solos=[v.get() for v in self.solos],swing=swing,data_dir=self.data_dir,step_settings=self.step_settings)
     def stop(self):
         winsound.PlaySound(None,0)
         if self.preview_path is not None:
             try:self.preview_path.unlink(missing_ok=True)
             except OSError:pass
             self.preview_path=None
-    def preview(self):
+    def play_pcm(self,producer,label='Pattern'):
         self.stop()
         try:
-            pcm=self.audio()
+            pcm=producer()
             f=tempfile.NamedTemporaryFile(suffix='.wav',delete=False);f.close()
             self.preview_path=Path(f.name);export_wav(f.name,pcm)
             winsound.PlaySound(str(self.preview_path),winsound.SND_FILENAME|winsound.SND_ASYNC)
-            self.status.set(f'Lecture locale : {len(pcm)//2/44100:.1f} secondes • STOP pour arrêter')
+            self.status.set(f'{label} : {len(pcm)//2/44100:.1f} s • STOP pour arrêter')
         except Exception as exc:messagebox.showerror('Séquenceur',str(exc),parent=self)
-    def export(self):
-        path=filedialog.asksaveasfilename(parent=self,title='Exporter la séquence',defaultextension='.wav',initialfile='moktek-tribe-sequence.wav',filetypes=[('WAV PCM 16 bits','*.wav')])
+    def preview(self):self.play_pcm(self.audio)
+    def export_audio(self,producer,filename):
+        path=filedialog.asksaveasfilename(parent=self,title='Exporter la séquence',defaultextension='.wav',initialfile=filename,filetypes=[('WAV PCM 16 bits','*.wav')])
         if not path:return
         try:
-            export_wav(path,self.audio());self.status.set('WAV exporté : '+Path(path).name)
+            export_wav(path,producer());self.status.set('WAV exporté : '+Path(path).name)
         except Exception as exc:messagebox.showerror('Export',str(exc),parent=self)
+    def export(self):self.export_audio(self.audio,'moktek-tribe-v8.wav')
     def save_pattern(self):
         self.data_dir.mkdir(parents=True,exist_ok=True)
         path=filedialog.asksaveasfilename(parent=self,initialdir=str(self.data_dir),defaultextension='.json',initialfile='tribe-pattern.json',filetypes=[('Pattern mokteK','*.json')])
         if not path:return
-        payload={'format':'moktek-windows-sequencer-v2','steps':self.steps.get(),'bpm':self.bpm.get(),'loops':self.repeat.get(),'pattern':self.pattern,'sounds':[v.get() for v in self.sounds],'volumes':[v.get() for v in self.volumes],'mutes':[v.get() for v in self.mutes],'solos':[v.get() for v in self.solos],'swing':self.swing.get()}
+        payload={'format':'moktek-windows-sequencer-v3','steps':self.steps.get(),'bpm':self.bpm.get(),'loops':self.repeat.get(),'pattern':self.pattern,'sounds':[v.get() for v in self.sounds],'volumes':[v.get() for v in self.volumes],'mutes':[v.get() for v in self.mutes],'solos':[v.get() for v in self.solos],'swing':self.swing.get(),'step_settings':self.step_settings,'slots':self.slots,'order':self.order.get(),'slot':self.slot.get()}
         try:Path(path).write_text(json.dumps(payload,ensure_ascii=False,indent=2),encoding='utf-8');self.status.set('Pattern sauvegardé')
         except Exception as exc:messagebox.showerror('Sauvegarde',str(exc),parent=self)
     def open_pattern(self):
@@ -149,12 +227,19 @@ class TribeSequencer(tk.Toplevel):
             if Path(path).stat().st_size>200000:raise ValueError('Fichier trop volumineux')
             data=json.loads(Path(path).read_text(encoding='utf-8'))
             steps=data['steps'];pattern=data['pattern'];sounds=data['sounds']
-            if data.get('format') not in ('moktek-windows-sequencer-v1','moktek-windows-sequencer-v2') or steps not in (16,32,64) or len(pattern)!=6 or len(sounds)!=6 or any(len(row)!=steps or any(type(v)!=bool for v in row) for row in pattern) or any(s not in SOUNDS and s not in self.extra_sounds for s in sounds):raise ValueError('Format de pattern invalide')
+            if data.get('format') not in ('moktek-windows-sequencer-v1','moktek-windows-sequencer-v2','moktek-windows-sequencer-v3') or steps not in (16,32,64) or len(pattern)!=6 or len(sounds)!=6 or any(len(row)!=steps or any(type(v)!=bool for v in row) for row in pattern) or any(s not in SOUNDS and s not in self.extra_sounds for s in sounds):raise ValueError('Format de pattern invalide')
             bpm=int(data['bpm']);loops=int(data['loops'])
             if not 40<=bpm<=300 or not 1<=loops<=16:raise ValueError('Tempo / boucles invalides')
             volumes=data.get('volumes',[.8]*6);mutes=data.get('mutes',[False]*6);solos=data.get('solos',[False]*6);swing=data.get('swing',0)
             if len(volumes)!=6 or any(not isinstance(v,(int,float)) or not 0<=v<=1 for v in volumes) or len(mutes)!=6 or len(solos)!=6 or any(type(v)!=bool for v in mutes+solos) or type(swing)!=int or not 0<=swing<=75:raise ValueError('Paramètres mixer invalides')
-            self.stop();self.steps.set(steps);self.pattern=pattern;self.bpm.set(bpm);self.repeat.set(loops);self.swing.set(swing)
+            settings=validate_step_settings(data.get('step_settings'),steps)
+            slots=data.get('slots',{})
+            if not isinstance(slots,dict) or any(k not in 'ABCD' or not isinstance(v,dict) or v.get('steps') not in (16,32,64) or len(v.get('pattern',[]))!=6 or any(len(row)!=v['steps'] or any(type(item)!=bool for item in row) for row in v['pattern']) for k,v in slots.items()):
+                raise ValueError('Emplacements invalides')
+            for v in slots.values():validate_step_settings(v.get('step_settings'),v['steps'])
+            order=data.get('order','A');slot=data.get('slot','A')
+            if not isinstance(order,str) or not 1<=len(''.join(order.split()))<=32 or any(k not in 'ABCD' for k in ''.join(order.upper().split())) or slot not in 'ABCD':raise ValueError('Chaîne invalide')
+            self.stop();self.steps.set(steps);self.pattern=pattern;self.step_settings=settings;self.slots=slots;self.order.set(order);self.slot.set(slot);self.bpm.set(bpm);self.repeat.set(loops);self.swing.set(swing)
             for var,val in zip(self.volumes,volumes):var.set(val)
             for var,val in zip(self.mutes,mutes):var.set(val)
             for var,val in zip(self.solos,solos):var.set(val)

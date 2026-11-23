@@ -5,6 +5,7 @@ import sys
 import wave
 import math
 import json
+import random
 from synth_factory import generate, RATE, PRESETS
 
 TRACKS = ('KICK', 'SNARE', 'HAT', 'BASS', 'LEAD', 'PERC')
@@ -93,12 +94,40 @@ def read_sample(path):
         out.append(int(v0+(v1-v0)*a))
     return out
 
-def render(pattern,bpm,steps,sounds,volumes,bars=1,mutes=None,solos=None,swing=0,data_dir=None):
-    """Render 6 tracks to PCM16 mono WAV with bounded swing and track controls."""
+def default_step_settings(steps):
+    return [[[100, 100, 1] for _ in range(steps)] for _ in TRACKS]
+
+
+def validate_step_settings(settings, steps):
+    if settings is None:
+        return default_step_settings(steps)
+    if not isinstance(settings, list) or len(settings) != 6:
+        raise ValueError('Réglages des pas invalides')
+    for row in settings:
+        if not isinstance(row, list) or len(row) != steps:
+            raise ValueError('Réglages des pas invalides')
+        for item in row:
+            if (not isinstance(item, list) or len(item) != 3
+                    or any(type(v) != int for v in item)
+                    or not 0 <= item[0] <= 127
+                    or not 0 <= item[1] <= 100
+                    or item[2] not in (1, 2, 3, 4)):
+                raise ValueError('Vélocité, probabilité ou roulement invalide')
+    return settings
+
+
+def render(pattern,bpm,steps,sounds,volumes,bars=1,mutes=None,solos=None,swing=0,data_dir=None,
+           step_settings=None, seed=42):
+    """Rendu offline déterministe : vélocité, probabilité, ratchets et swing.
+
+    Une graine fixe garantit que la préécoute et l'export correspondent.
+    """
     if steps not in (16,32,64) or not 40<=bpm<=300 or not 1<=bars<=16:raise ValueError('Tempo, longueur ou répétitions invalides')
-    if len(pattern)!=6 or any(len(t)!=steps for t in pattern):raise ValueError('Pattern invalide')
+    if len(pattern)!=6 or any(len(t)!=steps or any(type(v)!=bool for v in t) for t in pattern):raise ValueError('Pattern invalide')
     if len(sounds)!=6 or len(volumes)!=6:raise ValueError('Pistes invalides')
     if not 0<=swing<=75:raise ValueError('Swing invalide')
+    settings=validate_step_settings(step_settings,steps)
+    rng=random.Random(seed)
     mutes=list(mutes) if mutes is not None else [False]*6
     solos=list(solos) if solos is not None else [False]*6
     if len(mutes)!=6 or len(solos)!=6:raise ValueError('États des pistes invalides')
@@ -125,15 +154,40 @@ def render(pattern,bpm,steps,sounds,volumes,bars=1,mutes=None,solos=None,swing=0
         for rep in range(bars):
             for si,enabled in enumerate(pattern[ti]):
                 if not enabled:continue
-                # Delays odd 16th notes; the following even step remains fixed.
+                velocity,probability,ratchets=settings[ti][si]
+                if velocity==0 or rng.randrange(100)>=probability:continue
                 swing_offset=step_frames*(swing/100.0) if si%2 else 0
-                start=round((rep*steps+si)*step_frames+swing_offset)
-                if start>=total:continue
-                for j in range(min(len(sample),total-start)):
-                    mix[start+j]+=sample[j]*vol*.52
+                for hit in range(ratchets):
+                    # Each retrigger starts within its assigned subdivision.
+                    start=round((rep*steps+si)*step_frames+swing_offset+hit*step_frames/ratchets)
+                    if start>=total:continue
+                    # Avoid overlap between subdivisions from the same step.
+                    hit_length=max(1,round(step_frames/ratchets))
+                    gain=vol*(velocity/127.0)*.52
+                    for j in range(min(len(sample),hit_length,total-start)):
+                        mix[start+j]+=sample[j]*gain
     result=array('h',(max(-32768,min(32767,round(v))) for v in mix))
     if sys.byteorder!='little':result.byteswap()
     return result.tobytes()
+
+
+def render_chain(patterns, order, bpm, sounds, volumes, mutes=None, solos=None,
+                 swing=0, data_dir=None, seed=42):
+    """Render A/B/C/D slots successively, each slot has its own step length.
+
+    bpm and mixer settings are shared to avoid unexpected loudness jumps.
+    """
+    if not order or len(order)>32 or any(k not in 'ABCD' or k not in patterns for k in order):
+        raise ValueError('Chaîne invalide : 1 à 32 lettres A–D')
+    step_frames=RATE*60/(bpm*4)
+    duration=sum(int(round(patterns[k]['steps']*step_frames)) for k in order)/RATE
+    if duration>MAX_EXPORT_SECONDS:raise ValueError('Chaîne supérieure à 120 secondes')
+    output=bytearray()
+    for idx,key in enumerate(order):
+        p=patterns[key]
+        output.extend(render(p['pattern'],bpm,p['steps'],sounds,volumes,1,mutes,solos,swing,
+                             data_dir,p.get('step_settings'),seed+idx))
+    return bytes(output)
 
 def export_wav(filename, pcm):
     with wave.open(str(filename),'wb') as out:
