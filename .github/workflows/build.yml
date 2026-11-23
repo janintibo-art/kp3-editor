@@ -32,8 +32,8 @@ jobs:
           path: moktek-kaoss-studio.apk
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: v17.0-${{ github.run_number }}
-          name: mokteK Kaoss Studio V17 (Identité MIDI et diagnostic SysEx)
+          tag_name: v18.0-${{ github.run_number }}
+          name: mokteK Kaoss Studio V18 (Version diagnostic automatique)
           files: moktek-kaoss-studio.apk
       - uses: actions/upload-pages-artifact@v3
         with:

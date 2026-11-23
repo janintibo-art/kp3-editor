@@ -11,8 +11,8 @@ android {
   applicationId 'org.moktek.kaoss'
   minSdk 23
   targetSdk 32
-  versionCode 17
-  versionName '17.0'
+  versionCode 18
+  versionName '18.0'
  }
 
  buildFeatures {
