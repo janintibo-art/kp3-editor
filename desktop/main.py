@@ -13,6 +13,7 @@ from project_exchange import export_exchange, import_exchange
 from common_project_v16 import export_project, inspect_project
 from project_library_v17 import ProjectLibrary
 from tutos_v19 import Tutorials
+from workspace_v21 import load_layout, save_layout, normalize_layout
 from synth_factory import SynthFactory
 from sequencer_ui import TribeSequencer
 from korg_connection import KorgConnectionCenter
@@ -23,7 +24,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk, filedialog, messagebox
 
-VERSION = "20.0"
+VERSION = "21.0"
 BG, PANEL, STEEL, RED, TEXT, MUTED = "#100f10", "#211d1a", "#887766", "#ff493e", "#e9dac2", "#b9a99b"
 DARK_RED, GLOW, RACK, GRID = "#381315", "#ff8272", "#332b25", "#702126"
 DATA_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "mokteK-Kaoss-Studio"
@@ -39,6 +40,7 @@ class Studio(tk.Tk):
         self.geometry("1350x820")
         self.minsize(1040, 690)
         self.configure(bg=BG)
+        self.workspace_config = load_layout(DATA_DIR)
         self.port = None
         self.recording = False
         self.playing = False
@@ -67,6 +69,7 @@ class Studio(tk.Tk):
         style.theme_use("clam")
         style.configure("TCombobox", fieldbackground="#1a1515", background=RACK, foreground=TEXT, arrowcolor=RED, bordercolor=STEEL)
         self._ui()
+        self.after(350, self.restore_workspace)
         self.protocol("WM_DELETE_WINDOW", self.close)
         self.after(50, self.tick)
         self.refresh_ports()
@@ -94,14 +97,22 @@ class Studio(tk.Tk):
         tk.Frame(self, bg=RED, height=3).pack(fill="x")
         tk.Label(self, textvariable=self.status, bg=BG, fg="#8fe49a", anchor="w", padx=18, pady=7, font=("Consolas", 10, "bold")).pack(fill="x")
 
+        layout_bar = tk.Frame(self, bg=RACK, padx=12, pady=4)
+        layout_bar.pack(fill="x")
+        self.text(layout_bar, "DISPOSITION", 9, MUTED, True).pack(side="left", padx=(0, 8))
+        for name, caption in (("equilibre", "ÉQUILIBRÉ"), ("live", "LIVE / GRAND PAD"), ("studio", "STUDIO")):
+            b = self.btn(layout_bar, caption, lambda mode=name: self.apply_workspace(mode))
+            b.configure(font=("Segoe UI", 8, "bold"), pady=4)
+            b.pack(side="left", padx=3)
+        self.btn(layout_bar, "ENREGISTRER", self.save_workspace).pack(side="right")
         body = tk.Frame(self, bg=BG, padx=12, pady=10)
         body.pack(fill="both", expand=True)
-        body.grid_columnconfigure(0, weight=1, minsize=240)
-        body.grid_columnconfigure(1, weight=5, minsize=440)
-        body.grid_columnconfigure(2, weight=1, minsize=220)
-        body.grid_rowconfigure(0, weight=1)
-        left = self.panel(body, "APPAREIL / PROGRAMME")
-        left.grid(row=0, column=0, sticky="nsew", padx=5)
+        self.work_panes = tk.PanedWindow(body, orient=tk.HORIZONTAL, bg=STEEL,
+                                         sashwidth=8, sashrelief="flat", bd=0,
+                                         showhandle=True, handlesize=8, opaqueresize=True)
+        self.work_panes.pack(fill="both", expand=True)
+        left = self.panel(self.work_panes, "APPAREIL / PROGRAMME")
+        self.work_panes.add(left, minsize=230, width=285, stretch="never", padx=4)
         tk.OptionMenu(left, self.model, "KP3", "KP3+").pack(fill="x")
         self.text(left, "Programme MIDI", 10, MUTED).pack(anchor="w", pady=(18, 3))
         self.text(left, self.program_label, 27, RED, True).pack(anchor="w") if False else None
@@ -162,8 +173,8 @@ class Studio(tk.Tk):
         self.bind_all("<Control-3>", lambda e: show_tools("PROJETS"))
         self.bind_all("<F1>", lambda e: show_tools("AIDE"))
 
-        center = self.panel(body, "◉  TOUCH PAD   •   LIVE CONTROL")
-        center.grid(row=0, column=1, sticky="nsew", padx=5)
+        center = self.panel(self.work_panes, "◉  TOUCH PAD   •   LIVE CONTROL")
+        self.work_panes.add(center, minsize=360, width=660, stretch="always", padx=4)
         center.grid_rowconfigure(1, weight=1)
         center.grid_columnconfigure(0, weight=1)
         self.text(center, "Contrôle XY expérimental • CC 12 / CC 13 / Touch CC 92", 9, MUTED).grid(row=0, column=0, sticky="w")
@@ -188,8 +199,9 @@ class Studio(tk.Tk):
             b.bind("<ButtonRelease-1>", lambda e, note=36+i: self.note(note, False))
             b.bind("<Leave>", lambda e, note=36+i: self.note(note, False))
 
-        right = self.panel(body, "FX / MIDI / MOTION")
-        right.grid(row=0, column=2, sticky="nsew", padx=5)
+        right = self.panel(self.work_panes, "FX / MIDI / MOTION")
+        self.work_panes.add(right, minsize=240, width=285, stretch="never", padx=4)
+        self.workspace_panels = (left, center, right)
         self.depth = tk.IntVar(value=100)
         self.level = tk.IntVar(value=100)
         for title, variable, cc in [("FX DEPTH", self.depth, 94), ("LEVEL", self.level, 93)]:
@@ -219,6 +231,49 @@ class Studio(tk.Tk):
         footer.pack(fill="x")
         tk.Label(footer, textvariable=self.message, bg=BG, fg=MUTED, anchor="w").pack(fill="x")
         self.text(footer, "Ctrl+1 Créer  •  Ctrl+2 Korg  •  Ctrl+3 Projets  •  F1 Aide  |  MIDI expérimental  •  non affilié à Korg", 9, STEEL).pack(anchor="e")
+
+    def apply_workspace(self, mode):
+        """Three safe non-destructive window arrangements; all functions remain available."""
+        fractions = {"equilibre": (0.24, 0.78), "live": (0.19, 0.84), "studio": (0.30, 0.72)}
+        mode = mode if mode in fractions else "equilibre"
+        self.update_idletasks()
+        width = max(900, self.work_panes.winfo_width())
+        first, second = fractions[mode]
+        try:
+            self.work_panes.sash_place(0, round(width*first), 1)
+            self.work_panes.sash_place(1, round(width*second), 1)
+        except tk.TclError:
+            return
+        self.workspace_config["mode"] = mode
+        self.message.set(f"Disposition {mode.upper()} appliquée. Fais glisser les séparateurs pour personnaliser.")
+
+    def restore_workspace(self):
+        config = normalize_layout(self.workspace_config)
+        try:
+            w, h = config.get("geometry", [1350, 820])
+            self.geometry(f"{w}x{h}")
+            self.update_idletasks()
+            width = max(900, self.work_panes.winfo_width())
+            if config.get("sashes"):
+                a, b = config["sashes"]
+                self.work_panes.sash_place(0, int(width*a), 1)
+                self.work_panes.sash_place(1, int(width*b), 1)
+            else:
+                self.apply_workspace(config["mode"])
+        except (tk.TclError, ValueError):
+            self.apply_workspace("equilibre")
+
+    def save_workspace(self):
+        try:
+            self.update_idletasks()
+            width = max(1, self.work_panes.winfo_width())
+            sashes = [self.work_panes.sash_coord(i)[0]/width for i in (0, 1)]
+            self.workspace_config["sashes"] = sashes
+            self.workspace_config["geometry"] = [self.winfo_width(), self.winfo_height()]
+            save_layout(DATA_DIR, self.workspace_config)
+            self.message.set("Disposition Windows mémorisée sur ce PC.")
+        except (ValueError, tk.TclError, OSError) as exc:
+            self.message.set(f"Disposition non sauvegardée : {exc}")
 
     def send(self, typ, **data):
         if self.port is None or mido is None:
@@ -767,6 +822,7 @@ class Studio(tk.Tk):
         self.korg_window = KorgConnectionCenter(self)
 
     def close(self):
+        self.save_workspace()
         if hasattr(self, "korg_window") and self.korg_window.winfo_exists():
             self.korg_window.close()
         self.stop()
