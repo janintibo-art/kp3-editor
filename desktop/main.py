@@ -2,6 +2,12 @@
 MIDI features are experimental and require physical testing on KP3/KP3+.
 """
 import json
+import array
+import wave
+import tempfile
+import struct
+import math
+import winsound
 import os
 import sys
 import time
@@ -9,7 +15,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk, filedialog, messagebox
 
-VERSION = "2.0"
+VERSION = "3.0"
 BG, PANEL, STEEL, RED, TEXT, MUTED = "#100f10", "#211d1a", "#887766", "#ff493e", "#e9dac2", "#b9a99b"
 DARK_RED, GLOW, RACK, GRID = "#381315", "#ff8272", "#332b25", "#702126"
 DATA_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "mokteK-Kaoss-Studio"
@@ -22,7 +28,7 @@ class Studio(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(f"mokteK • KAOSS STUDIO Windows V{VERSION}")
-        self.geometry("1200x760")
+        self.geometry("1240x790")
         self.minsize(950, 640)
         self.configure(bg=BG)
         self.port = None
@@ -105,6 +111,7 @@ class Studio(tk.Tk):
         self.btn(left, "TAP TEMPO", self.tap).pack(fill="x", pady=(8, 0))
         self.btn(left, "SAUVER SESSION", self.save_session).pack(fill="x", pady=(28, 4))
         self.btn(left, "OUVRIR SESSION", self.open_session).pack(fill="x")
+        self.btn(left, "🎵 SAMPLE STUDIO", self.open_sample_studio).pack(fill="x", pady=(18, 0))
 
         center = self.panel(body, "◉  TOUCH PAD   •   LIVE CONTROL")
         center.grid(row=0, column=1, sticky="nsew", padx=5)
@@ -388,6 +395,174 @@ class Studio(tk.Tk):
             self.message.set("Session restaurée localement, sans envoi de programme MIDI.")
         except Exception as exc:
             messagebox.showerror("Session invalide", str(exc))
+
+
+    def open_sample_studio(self):
+        """Local 16-bit PCM WAV editor; never sends proprietary data to hardware."""
+        if hasattr(self, "sample_window") and self.sample_window.winfo_exists():
+            self.sample_window.lift()
+            return
+        win = tk.Toplevel(self)
+        self.sample_window = win
+        win.title("mokteK // SAMPLE STUDIO • Windows V3")
+        win.geometry("1000x650")
+        win.minsize(760, 570)
+        win.configure(bg=BG)
+        win.transient(self)
+        state = {"samples": None, "rate": 44100, "channels": 1, "frames": 0, "filename": None, "preview": None}
+        title = tk.Frame(win, bg=RACK, padx=18, pady=13)
+        title.pack(fill="x")
+        self.text(title, "SAMPLE STUDIO  //  WAV LAB", 21, RED, True).pack(side="left")
+        self.text(title, "ÉDITION LOCALE • AUCUN TRANSFERT KP3", 9, MUTED).pack(side="right")
+        tk.Frame(win, bg=RED, height=3).pack(fill="x")
+        details = tk.StringVar(value="Ouvre un WAV PCM 16 bits (mono ou stéréo) pour commencer.")
+        info = tk.Label(win, textvariable=details, bg=BG, fg=TEXT, anchor="w", padx=18, pady=12)
+        info.pack(fill="x")
+        frame = self.panel(win, "FORME D’ONDE  •  APERÇU")
+        frame.pack(fill="both", expand=True, padx=15, pady=8)
+        waveview = tk.Canvas(frame, bg="#19090c", highlightthickness=2, highlightbackground=RED, height=230)
+        waveview.pack(fill="both", expand=True, pady=(0, 10))
+        begin = tk.DoubleVar(value=0.0)
+        end = tk.DoubleVar(value=100.0)
+        reverse = tk.BooleanVar(value=False)
+        normalize = tk.BooleanVar(value=False)
+        status = tk.StringVar(value="Aucun échantillon chargé")
+        def selection():
+            if state["samples"] is None:
+                return 0, 0
+            n=state["frames"]
+            return round(min(begin.get(),end.get())/100*n), round(max(begin.get(),end.get())/100*n)
+        def render():
+            waveview.delete("all")
+            w=max(1,waveview.winfo_width());h=max(1,waveview.winfo_height())
+            for k in range(1,8):
+                xx=k*w/8
+                waveview.create_line(xx,0,xx,h,fill=GRID)
+            waveview.create_line(0,h/2,w,h/2,fill=STEEL)
+            if state["samples"] is None:return
+            arr=state["samples"];ch=state["channels"];frames=state["frames"]
+            # bounded overview cost independent of input duration
+            bins=min(int(w),900)
+            for i in range(bins):
+                lo=i*frames//bins;hi=max(lo+1,(i+1)*frames//bins)
+                stride=max(1,(hi-lo)//45)
+                peak=0
+                for f in range(lo,hi,stride):
+                    for c in range(ch):
+                        peak=max(peak,abs(arr[f*ch+c]))
+                ph=(h*.46)*peak/32768
+                px=(i+.5)*w/bins
+                waveview.create_line(px,h/2-ph,px,h/2+ph,fill=RED)
+            a,b=selection()
+            x1=a/max(1,frames)*w;x2=b/max(1,frames)*w
+            waveview.create_rectangle(0,0,x1,h,fill=BG,stipple="gray50",outline="")
+            waveview.create_rectangle(x2,0,w,h,fill=BG,stipple="gray50",outline="")
+            waveview.create_line(x1,0,x1,h,fill="#f2da91",width=2)
+            waveview.create_line(x2,0,x2,h,fill="#f2da91",width=2)
+        def selection_update(_=None):
+            if state["samples"] is not None:
+                a,b=selection()
+                status.set(f"Sélection : {a/state['rate']:.2f}s – {b/state['rate']:.2f}s  ({(b-a)/state['rate']:.2f}s)")
+            render()
+        def load_file():
+            path=filedialog.askopenfilename(parent=win,filetypes=[("WAV audio", "*.wav")])
+            if not path:return
+            try:
+                with wave.open(path,"rb") as wav:
+                    if wav.getcomptype()!="NONE" or wav.getsampwidth()!=2 or wav.getnchannels() not in (1,2):
+                        raise ValueError("Format requis : WAV PCM 16 bits mono ou stéréo")
+                    frames=wav.getnframes();channels=wav.getnchannels();rate=wav.getframerate()
+                    if not 8000<=rate<=192000:raise ValueError("Fréquence d’échantillonnage non prise en charge")
+                    if frames==0:raise ValueError("Fichier WAV vide")
+                    if frames*channels>30_000_000:raise ValueError("WAV trop volumineux pour cette version (30 M échantillons maximum)")
+                    raw=wav.readframes(frames)
+                samples=array.array("h")
+                samples.frombytes(raw)
+                if sys.byteorder!="little":samples.byteswap()
+                if len(samples)!=frames*channels:raise ValueError("Données audio incomplètes")
+                state.update(samples=samples,rate=rate,channels=channels,frames=frames,filename=path)
+                begin.set(0);end.set(100)
+                details.set(f"{Path(path).name}  •  {rate} Hz  •  {channels} canal(aux)  •  {frames/rate:.2f} s")
+                selection_update()
+            except Exception as exc:messagebox.showerror("Import WAV",str(exc),parent=win)
+        def processed_audio():
+            arr=state["samples"]
+            if arr is None:raise ValueError("Importer d’abord un WAV")
+            a,b=selection();ch=state["channels"]
+            if b<=a:raise ValueError("La sélection est vide")
+            # array slicing preserves contiguous interleaved channels
+            sub=arr[a*ch:b*ch]
+            if reverse.get():
+                ordered=array.array("h")
+                for frame in range(b-a-1,-1,-1):ordered.extend(sub[frame*ch:(frame+1)*ch])
+                sub=ordered
+            if normalize.get():
+                peak=max((abs(int(v)) for v in sub),default=0)
+                if peak>0:
+                    factor=32767.0/peak
+                    sub=array.array("h",(max(-32768,min(32767,round(int(v)*factor))) for v in sub))
+            if sys.byteorder!="little":sub.byteswap()
+            return sub.tobytes()
+        def write_wav(path,raw):
+            with wave.open(str(path),"wb") as wav:
+                wav.setnchannels(state["channels"])
+                wav.setsampwidth(2)
+                wav.setframerate(state["rate"])
+                wav.writeframes(raw)
+        def preview():
+            if state["samples"] is None:return
+            try:
+                raw=processed_audio()
+                if len(raw)>state["rate"]*state["channels"]*2*30:
+                    raw=raw[:state["rate"]*state["channels"]*2*30]
+                    status.set("Préécoute limitée aux 30 premières secondes de la sélection")
+                winsound.PlaySound(None,winsound.SND_PURGE)
+                if state["preview"]:
+                    try:Path(state["preview"]).unlink(missing_ok=True)
+                    except OSError:pass
+                with tempfile.NamedTemporaryFile(suffix=".wav",delete=False) as f:path=Path(f.name)
+                state["preview"]=str(path)
+                write_wav(path,raw)
+                winsound.PlaySound(str(path),winsound.SND_FILENAME | winsound.SND_ASYNC)
+            except Exception as exc:messagebox.showerror("Écoute",str(exc),parent=win)
+        def stop_preview():
+            winsound.PlaySound(None,winsound.SND_PURGE)
+        def export():
+            if state["samples"] is None:return
+            name=Path(state["filename"]).stem+"_moktek.wav"
+            path=filedialog.asksaveasfilename(parent=win,defaultextension=".wav",initialfile=name,filetypes=[("WAV PCM 16 bits","*.wav")])
+            if not path:return
+            try:
+                write_wav(path,processed_audio())
+                status.set(f"Export WAV terminé : {Path(path).name}")
+            except Exception as exc:messagebox.showerror("Export WAV",str(exc),parent=win)
+        sliders=tk.Frame(frame,bg=PANEL)
+        sliders.pack(fill="x")
+        for label,var in (("Début (%)",begin),("Fin (%)",end)):
+            row=tk.Frame(sliders,bg=PANEL)
+            row.pack(fill="x",pady=3)
+            self.text(row,label,10,MUTED).pack(side="left")
+            tk.Scale(row,from_=0,to=100,resolution=.1,orient="horizontal",variable=var,
+                     command=selection_update,bg=PANEL,fg=TEXT,troughcolor=DARK_RED,
+                     activebackground=RED,highlightthickness=0).pack(side="right",fill="x",expand=True)
+        toggles=tk.Frame(frame,bg=PANEL)
+        toggles.pack(fill="x",pady=8)
+        for label,var in (("Inverser l’extrait",reverse),("Normaliser le volume",normalize)):
+            tk.Checkbutton(toggles,text=label,variable=var,bg=PANEL,fg=TEXT,selectcolor=BG,
+                           activebackground=PANEL).pack(side="left",padx=(0,20))
+        actions=tk.Frame(win,bg=BG,padx=14,pady=7)
+        actions.pack(fill="x")
+        for label,fn in (("IMPORTER WAV",load_file),("▶ ÉCOUTER",preview),("■ STOP",stop_preview),("EXPORTER WAV",export)):
+            self.btn(actions,label,fn).pack(side="left",padx=5)
+        tk.Label(win,textvariable=status,bg=BG,fg=MUTED,padx=18,pady=10,anchor="w").pack(fill="x")
+        def close_sample():
+            stop_preview()
+            if state["preview"]:
+                try:Path(state["preview"]).unlink(missing_ok=True)
+                except OSError:pass
+            win.destroy()
+        win.protocol("WM_DELETE_WINDOW",close_sample)
+        waveview.bind("<Configure>",lambda _:render())
 
     def close(self):
         self.stop()

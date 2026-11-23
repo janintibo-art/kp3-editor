@@ -35,6 +35,6 @@ jobs:
       - name: Publier dans GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: windows-v2.0-${{ github.run_number }}
-          name: mokteK Kaoss Studio Windows V2.0
+          tag_name: windows-v3.0-${{ github.run_number }}
+          name: mokteK Kaoss Studio Windows V3.0
           files: dist/moktek-kaoss-studio-windows.exe
