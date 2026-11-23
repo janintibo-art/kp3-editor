@@ -19,7 +19,7 @@ jobs:
       - name: Installer les dépendances
         run: python -m pip install -r desktop/requirements.txt
       - name: Vérifier la syntaxe
-        run: python -m py_compile desktop/main.py desktop/librarian.py desktop/synth_factory.py desktop/sequencer_engine.py desktop/sequencer_ui.py desktop/arranger_ui.py desktop/arranger_engine.py desktop/korg_connection.py desktop/midi_profiles.py desktop/korg_test_wizard.py desktop/project_exchange.py desktop/portable_synth.py desktop/common_project_v16.py
+        run: python -m py_compile desktop/main.py desktop/librarian.py desktop/synth_factory.py desktop/sequencer_engine.py desktop/sequencer_ui.py desktop/arranger_ui.py desktop/arranger_engine.py desktop/korg_connection.py desktop/midi_profiles.py desktop/korg_test_wizard.py desktop/project_exchange.py desktop/portable_synth.py desktop/common_project_v16.py desktop/project_library_v17.py
       - name: Contrôler les ressources de l'interface
         run: python -c "import ast; ast.parse(open('desktop/main.py', encoding='utf-8').read())"
       - name: Construire le logiciel Windows
@@ -35,6 +35,6 @@ jobs:
       - name: Publier dans GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: windows-v16.0-${{ github.run_number }}
-          name: mokteK Kaoss Studio Windows V16.0
+          tag_name: windows-v17.0-${{ github.run_number }}
+          name: mokteK Kaoss Studio Windows V17.0
           files: dist/moktek-kaoss-studio-windows.exe

@@ -11,6 +11,7 @@ import winsound
 from librarian import SampleLibrarian
 from project_exchange import export_exchange, import_exchange
 from common_project_v16 import export_project, inspect_project
+from project_library_v17 import ProjectLibrary
 from synth_factory import SynthFactory
 from sequencer_ui import TribeSequencer
 from korg_connection import KorgConnectionCenter
@@ -21,7 +22,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk, filedialog, messagebox
 
-VERSION = "16.0"
+VERSION = "17.0"
 BG, PANEL, STEEL, RED, TEXT, MUTED = "#100f10", "#211d1a", "#887766", "#ff493e", "#e9dac2", "#b9a99b"
 DARK_RED, GLOW, RACK, GRID = "#381315", "#ff8272", "#332b25", "#702126"
 DATA_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "mokteK-Kaoss-Studio"
@@ -124,6 +125,7 @@ class Studio(tk.Tk):
         self.btn(left, "◉ KORG CONNECTION", self.open_korg_center).pack(fill="x", pady=(7, 0))
         self.btn(left, "⇄ ÉCHANGES ANDROID / PC", self.open_exchange).pack(fill="x", pady=(7, 0))
         self.btn(left, "▣ PROJET COMMUN V16", self.open_common_project).pack(fill="x", pady=(7, 0))
+        self.btn(left, "▣ MES PROJETS V17", self.open_project_library).pack(fill="x", pady=(7, 0))
 
         center = self.panel(body, "◉  TOUCH PAD   •   LIVE CONTROL")
         center.grid(row=0, column=1, sticky="nsew", padx=5)
@@ -445,6 +447,58 @@ class Studio(tk.Tk):
         self.btn(body,"IMPORTER DEPUIS ANDROID • ZIP",importer).pack(fill="x",pady=8)
         self.text(body,"Pattern converti : disponible dans exchange_inbox, puis OUVRIR PATTERN dans Tribe Sequencer. Sons/swing/rolls Android non pris en charge.",9,MUTED).pack(anchor="w",pady=6)
 
+    def open_project_library(self):
+        win=tk.Toplevel(self)
+        win.title('mokteK • MES PROJETS V17')
+        win.geometry('890x590');win.configure(bg=BG)
+        library=ProjectLibrary(DATA_DIR)
+        head=self.panel(win,'BIBLIOTHÈQUE DE PROJETS  •  V17')
+        head.pack(fill='both',expand=True,padx=14,pady=12)
+        self.text(head,'Archives ZIP vérifiées • aucune modification du matériel Korg • récupération locale',10,MUTED).pack(anchor='w')
+        browser=tk.Listbox(head,bg='#1b1515',fg=TEXT,selectbackground='#75201c',selectforeground='white',height=13,font=('Consolas',11))
+        browser.pack(fill='both',expand=True,pady=12)
+        status=tk.StringVar(value='Sélectionne un projet pour l’exporter ou le dupliquer.')
+        tk.Label(head,textvariable=status,fg=MUTED,bg=PANEL,wraplength=780,justify='left').pack(fill='x')
+        selected=[]
+        def refresh(select_id=None):
+            selected[:]=library.list()
+            browser.delete(0,'end')
+            for i,rec in enumerate(selected):
+                browser.insert('end',f"{rec['title'][:39]:39}  {rec['created'][:10]}   {rec['samples']:2} WAV")
+                if rec['id']==select_id:browser.selection_set(i)
+            status.set(f'{len(selected)} projet(s) sauvegardé(s) sur ce PC.')
+        def chosen():
+            cur=browser.curselection()
+            if not cur:raise ValueError('Sélectionne un projet')
+            return selected[cur[0]]
+        def execute(fn):
+            try:fn()
+            except Exception as exc:messagebox.showerror('Opération interrompue',str(exc),parent=win)
+        def add():
+            src=filedialog.askopenfilename(parent=win,title='Importer un projet commun V16',filetypes=[('Projets ZIP','*.zip')])
+            if not src:return
+            rec=library.archive(src);refresh(rec['id'])
+        def export():
+            r=chosen();target=filedialog.asksaveasfilename(parent=win,defaultextension='.zip',initialfile='moktek_'+r['id'][:8]+'.zip',filetypes=[('ZIP','*.zip')])
+            if target:library.export(r['id'],target);status.set('Copie exportée : '+target)
+        def duplicate():
+            rec=library.duplicate(chosen()['id']);refresh(rec['id'])
+        def remove():
+            r=chosen()
+            if messagebox.askyesno('Retirer du catalogue','Retirer ce projet ? Une copie restera dans le dossier recovery.',parent=win):
+                library.remove_from_catalogue(r['id']);refresh()
+        def restore():
+            r=chosen();path=library.locate(r['id'])
+            info=inspect_project(path)
+            if messagebox.askyesno('Récupération du projet',
+                f"{info['title']} • {info['samples']} WAV.\n\nImporter les WAV dans les emplacements libres ? Les patterns et presets seront conservés dans la boîte de réception pour import manuel. Aucun écrasement des banques existantes.",parent=win):
+                result=import_exchange(DATA_DIR,path)
+                status.set(f"Récupération : {result['samples']} WAV ajoutés ; {result['preserved']} fichiers préservés.")
+        buttons=tk.Frame(head,bg=PANEL);buttons.pack(fill='x',pady=8)
+        for label,fn in [('AJOUTER ZIP',add),('EXPORTER',export),('DUPLIQUER',duplicate),('RÉCUPÉRER',restore),('RETIRER',remove)]:
+            self.btn(buttons,label,lambda f=fn:execute(f)).pack(side='left',expand=True,fill='x',padx=3)
+        refresh()
+
     def open_common_project(self):
         win=tk.Toplevel(self)
         win.title("mokteK • Projet commun Windows / Android V16")
@@ -468,6 +522,7 @@ class Studio(tk.Tk):
                 pattern=pick("pattern Windows")
                 synth=pick("preset portable Synth Factory V15 (ZIP ou JSON)")
                 report=export_project(DATA_DIR,dest,title.get(),session=session,pattern=pattern,synth=synth)
+                ProjectLibrary(DATA_DIR).archive(dest)
                 messagebox.showinfo("Projet exporté",f"{report['samples']} WAV inclus. Pattern : {report['pattern']}. Preset : {report['synth']}.\nAucun envoi au Korg.",parent=win)
             except Exception as exc:messagebox.showerror("Export impossible",str(exc),parent=win)
         def importer():
@@ -478,6 +533,7 @@ class Studio(tk.Tk):
                 preview=f"{info['title']} ({info['origin']})\nWAV : {info['samples']} • Pattern : {info['pattern']} • Preset : {info['synth']}\nImporter les WAV dans les emplacements libres et conserver les JSON en boîte de réception ?"
                 if not messagebox.askyesno("Prévisualisation V16",preview,parent=win):return
                 result=import_exchange(DATA_DIR,src)
+                ProjectLibrary(DATA_DIR).archive(src)
                 messagebox.showinfo("Import terminé",f"{result['samples']} WAV ajoutés et {result['preserved']} documents conservés dans exchange_inbox.\nLes patterns doivent être ouverts manuellement. Aucun écrasement.",parent=win)
             except Exception as exc:messagebox.showerror("Projet non importé",str(exc),parent=win)
         self.btn(body,"EXPORTER PROJET WINDOWS → ANDROID (ZIP V16)",export).pack(fill="x",pady=10)
