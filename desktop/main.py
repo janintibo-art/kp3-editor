@@ -9,6 +9,7 @@ import struct
 import math
 import winsound
 from librarian import SampleLibrarian
+from synth_factory import SynthFactory
 import os
 import sys
 import time
@@ -16,7 +17,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk, filedialog, messagebox
 
-VERSION = "4.0"
+VERSION = "5.0"
 BG, PANEL, STEEL, RED, TEXT, MUTED = "#100f10", "#211d1a", "#887766", "#ff493e", "#e9dac2", "#b9a99b"
 DARK_RED, GLOW, RACK, GRID = "#381315", "#ff8272", "#332b25", "#702126"
 DATA_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "mokteK-Kaoss-Studio"
@@ -114,6 +115,7 @@ class Studio(tk.Tk):
         self.btn(left, "OUVRIR SESSION", self.open_session).pack(fill="x")
         self.btn(left, "🎵 SAMPLE STUDIO", self.open_sample_studio).pack(fill="x", pady=(18, 0))
         self.btn(left, "▦ SAMPLE LIBRARIAN", self.open_librarian).pack(fill="x", pady=(7, 0))
+        self.btn(left, "♫ SYNTH FACTORY", self.open_synth_factory).pack(fill="x", pady=(7, 0))
 
         center = self.panel(body, "◉  TOUCH PAD   •   LIVE CONTROL")
         center.grid(row=0, column=1, sticky="nsew", padx=5)
@@ -571,6 +573,12 @@ class Studio(tk.Tk):
             self.librarian_window.lift()
             return
         self.librarian_window = SampleLibrarian(self, DATA_DIR, self.btn, self.panel, self.text)
+
+    def open_synth_factory(self):
+        if hasattr(self, "synth_window") and self.synth_window.winfo_exists():
+            self.synth_window.lift()
+            return
+        self.synth_window = SynthFactory(self, DATA_DIR, self.btn, self.panel, self.text)
 
     def close(self):
         self.stop()
