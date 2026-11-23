@@ -14,6 +14,7 @@ from common_project_v16 import export_project, inspect_project
 from project_library_v17 import ProjectLibrary
 from tutos_v19 import Tutorials
 from workspace_v21 import load_layout, save_layout, normalize_layout
+from workspace_tools_v22 import Workbench
 from synth_factory import SynthFactory
 from sequencer_ui import TribeSequencer
 from korg_connection import KorgConnectionCenter
@@ -24,7 +25,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk, filedialog, messagebox
 
-VERSION = "21.0"
+VERSION = "22.0"
 BG, PANEL, STEEL, RED, TEXT, MUTED = "#100f10", "#211d1a", "#887766", "#ff493e", "#e9dac2", "#b9a99b"
 DARK_RED, GLOW, RACK, GRID = "#381315", "#ff8272", "#332b25", "#702126"
 DATA_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "mokteK-Kaoss-Studio"
@@ -134,10 +135,10 @@ class Studio(tk.Tk):
         # Les catégories occupent un seul emplacement, sans empiler 12 gros boutons.
         categories = {
             "CRÉER": [
-                ("SAMPLE STUDIO", self.open_sample_studio),
+                ("SAMPLE STUDIO", lambda: self.switch_workbench("sample")),
                 ("SAMPLE LIBRARIAN", self.open_librarian),
-                ("SYNTH FACTORY", self.open_synth_factory),
-                ("TRIBE SEQUENCER", self.open_sequencer)],
+                ("SYNTH FACTORY", lambda: self.switch_workbench("synth")),
+                ("TRIBE SEQUENCER", lambda: self.switch_workbench("seq"))],
             "KORG": [
                 ("KORG CONNECTION", self.open_korg_center),
                 ("PROFILS / TESTS MIDI", self.open_korg_center)],
@@ -177,7 +178,8 @@ class Studio(tk.Tk):
         self.work_panes.add(center, minsize=360, width=660, stretch="always", padx=4)
         center.grid_rowconfigure(1, weight=1)
         center.grid_columnconfigure(0, weight=1)
-        self.text(center, "Contrôle XY expérimental • CC 12 / CC 13 / Touch CC 92", 9, MUTED).grid(row=0, column=0, sticky="w")
+        self.live_heading = self.text(center, "Contrôle XY expérimental • CC 12 / CC 13 / Touch CC 92", 9, MUTED)
+        self.live_heading.grid(row=0, column=0, sticky="w")
         self.canvas = tk.Canvas(center, bg="#19090c", highlightbackground=RED, highlightthickness=3, cursor="crosshair", relief="flat")
         self.canvas.grid(row=1, column=0, sticky="nsew", pady=8)
         self.canvas.bind("<Configure>", lambda e: self.draw_pad())
@@ -198,6 +200,18 @@ class Studio(tk.Tk):
             b.bind("<ButtonPress-1>", lambda e, note=36+i: self.note(note, True))
             b.bind("<ButtonRelease-1>", lambda e, note=36+i: self.note(note, False))
             b.bind("<Leave>", lambda e, note=36+i: self.note(note, False))
+
+        self.live_widgets = (self.live_heading, self.canvas, bottom, banks)
+        self.workbench = Workbench(center, DATA_DIR, self.open_advanced_tool)
+        self.workbench.grid(row=1, column=0, rowspan=3, sticky="nsew", pady=8)
+        self.workbench.grid_remove()
+        self.active_workbench = "live"
+        self.workbench_tabs = tk.Frame(center, bg=PANEL)
+        self.workbench_tabs.grid(row=4, column=0, sticky="ew", pady=(7,0))
+        for title, key in (("◉ LIVE", "live"), ("WAVE", "sample"), ("SYNTH", "synth"), ("SEQ", "seq")):
+            b=self.btn(self.workbench_tabs,title,lambda key=key:self.switch_workbench(key))
+            b.configure(pady=5, font=("Segoe UI",9,"bold"))
+            b.pack(side="left",expand=True,fill="x",padx=2)
 
         right = self.panel(self.work_panes, "FX / MIDI / MOTION")
         self.work_panes.add(right, minsize=240, width=285, stretch="never", padx=4)
@@ -796,6 +810,24 @@ class Studio(tk.Tk):
             win.destroy()
         win.protocol("WM_DELETE_WINDOW",close_sample)
         waveview.bind("<Configure>",lambda _:render())
+
+    def switch_workbench(self,tool):
+        """Keep original Live widgets intact; swap only the center creative area."""
+        if tool == "live":
+            self.workbench.grid_remove()
+            for widget in self.live_widgets: widget.grid()
+            self.active_workbench="live"
+            self.message.set("LIVE • pad XY et contrôle MIDI expérimental")
+            return
+        if tool not in ("sample","synth","seq"): return
+        for widget in self.live_widgets: widget.grid_remove()
+        self.workbench.grid()
+        self.workbench.show(tool)
+        self.active_workbench=tool
+        self.message.set("ATELIER INTÉGRÉ • " + tool.upper() + " • traitement audio local")
+
+    def open_advanced_tool(self,tool):
+        return {"sample":self.open_sample_studio,"synth":self.open_synth_factory,"seq":self.open_sequencer}[tool]()
 
     def open_librarian(self):
         if hasattr(self, "librarian_window") and self.librarian_window.winfo_exists():
