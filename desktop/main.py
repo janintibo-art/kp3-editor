@@ -12,6 +12,7 @@ from librarian import SampleLibrarian
 from project_exchange import export_exchange, import_exchange
 from common_project_v16 import export_project, inspect_project
 from project_library_v17 import ProjectLibrary
+from tutos_v19 import Tutorials
 from synth_factory import SynthFactory
 from sequencer_ui import TribeSequencer
 from korg_connection import KorgConnectionCenter
@@ -22,7 +23,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk, filedialog, messagebox
 
-VERSION = "18.0"
+VERSION = "19.0"
 BG, PANEL, STEEL, RED, TEXT, MUTED = "#100f10", "#211d1a", "#887766", "#ff493e", "#e9dac2", "#b9a99b"
 DARK_RED, GLOW, RACK, GRID = "#381315", "#ff8272", "#332b25", "#702126"
 DATA_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "mokteK-Kaoss-Studio"
@@ -126,6 +127,7 @@ class Studio(tk.Tk):
         self.btn(left, "⇄ ÉCHANGES ANDROID / PC", self.open_exchange).pack(fill="x", pady=(7, 0))
         self.btn(left, "▣ PROJET COMMUN V16", self.open_common_project).pack(fill="x", pady=(7, 0))
         self.btn(left, "▣ MES PROJETS V17", self.open_project_library).pack(fill="x", pady=(7, 0))
+        self.btn(left, "? TUTOS / AIDE", lambda: Tutorials(self)).pack(fill="x", pady=(7, 0))
 
         center = self.panel(body, "◉  TOUCH PAD   •   LIVE CONTROL")
         center.grid(row=0, column=1, sticky="nsew", padx=5)

@@ -7,6 +7,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from arranger_ui import SongArranger
 from mixer_fx_v18 import apply_fx, validate_fx
+from fx_presets_v19 import PRESETS, preset
 from sequencer_engine import TRACKS, SOUNDS, DEFAULT_SOUNDS, default_pattern, render, export_wav, librarian_choices, default_step_settings, validate_step_settings, render_chain
 BG='#100f10';PANEL='#211d1a';RED='#ff493e';STEEL='#887766';TEXT='#e9dac2';MUTED='#b9a99b'
 
@@ -75,7 +76,13 @@ class TribeSequencer(tk.Toplevel):
             tk.Scale(fxbar,variable=var,from_=100 if title=='FILTRE Hz' else 0,to=hi,resolution=res,
                      orient='horizontal',length=100 if title=='FILTRE Hz' else 80,bg='#332b25',fg=TEXT,
                      troughcolor='#54211e',highlightthickness=0,showvalue=True).pack(side='left')
-        self.button(fxbar,'RESET FX',self.reset_fx).pack(side='right',padx=5)
+        fxpresets=tk.Frame(self,bg='#332b25',padx=10,pady=4)
+        fxpresets.pack(fill='x',padx=12,pady=(0,4))
+        self.fx_preset=tk.StringVar(value='NEUTRE')
+        tk.Label(fxpresets,text='PRESETS FX',bg='#332b25',fg=TEXT).pack(side='left',padx=4)
+        ttk.Combobox(fxpresets,textvariable=self.fx_preset,values=list(PRESETS),state='readonly',width=19).pack(side='left',padx=4)
+        self.button(fxpresets,'APPLIQUER',self.apply_fx_preset).pack(side='left',padx=3)
+        self.button(fxpresets,'RESET FX',self.reset_fx).pack(side='left',padx=3)
         grid_box=tk.Frame(self,bg=PANEL,padx=8,pady=10);grid_box.pack(fill='both',expand=True,padx=12,pady=7)
         tk.Label(grid_box,text='Clic = activer/désactiver  •  Clic droit = vélocité / probabilité / roulement  •  Défilement horizontal',bg=PANEL,fg=MUTED,anchor='w').pack(fill='x',pady=(0,7))
         container=tk.Frame(grid_box,bg=PANEL);container.pack(fill='both',expand=True)
@@ -158,6 +165,13 @@ class TribeSequencer(tk.Toplevel):
 
     def fx_settings(self):
         return validate_fx({'gain':self.fx_gain.get(),'drive':self.fx_drive.get(),'echo':self.fx_echo.get(),'cutoff':self.fx_cutoff.get()})
+
+    def apply_fx_preset(self):
+        doc=preset(self.fx_preset.get())
+        self.fx_gain.set(doc['gain']);self.fx_drive.set(doc['drive'])
+        self.fx_echo.set(doc['echo']);self.fx_cutoff.set(doc['cutoff'])
+        self.fx_enabled.set(True)
+        self.status.set('FX V19 : preset '+self.fx_preset.get())
 
     def reset_fx(self):
         self.fx_enabled.set(False);self.fx_gain.set(1.0);self.fx_drive.set(0);self.fx_echo.set(0);self.fx_cutoff.set(20000)

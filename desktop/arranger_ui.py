@@ -11,7 +11,7 @@ class SongArranger(tk.Toplevel):
     def __init__(self,parent,sequencer):
         super().__init__(parent)
         self.source=sequencer
-        self.title('mokteK // ARRANGEUR • Windows V9')
+        self.title('mokteK // ARRANGEUR • FX V19')
         self.geometry('860x615');self.minsize(700,510);self.configure(bg=BG)
         self.blocks=[];self.pattern=tk.StringVar(value='A');self.section=tk.StringVar(value='INTRO');self.repeats=tk.IntVar(value=1)
         self.status=tk.StringVar(value='Mémorise les patterns A–D dans le séquenceur avant de composer. Durée max : 120 s.')
@@ -27,6 +27,7 @@ class SongArranger(tk.Toplevel):
         self.label(toolbar,'RÉPÉTITIONS').pack(side='left',padx=(10,0))
         tk.Spinbox(toolbar,from_=1,to=16,textvariable=self.repeats,width=4,bg=BG,fg=TEXT,buttonbackground=PANEL).pack(side='left',padx=5)
         self.button(toolbar,'+ AJOUTER',self.add).pack(side='right')
+        tk.Label(self,text='FX MASTER V19 : utilise les réglages du séquenceur (presets inclus) lors de la préécoute et de l’export WAV.',bg=BG,fg=MUTED,anchor='w',padx=15).pack(fill='x')
         timeline=tk.Frame(self,bg=PANEL,padx=12,pady=10);timeline.pack(fill='both',expand=True,padx=12)
         self.label(timeline,'ORDRE DU MORCEAU — sélectionne une section pour la déplacer ou la supprimer').pack(anchor='w',pady=(0,8))
         mid=tk.Frame(timeline,bg=PANEL);mid.pack(fill='both',expand=True)
@@ -71,12 +72,12 @@ class SongArranger(tk.Toplevel):
     def clear(self):
         if self.blocks and messagebox.askyesno('Arrangeur','Effacer toute la timeline ?',parent=self):self.blocks.clear();self.refresh()
     def project(self):
-        return make_project(self.blocks,self.slots(),int(self.source.bpm.get()),[v.get() for v in self.source.sounds],[v.get() for v in self.source.volumes],[v.get() for v in self.source.mutes],[v.get() for v in self.source.solos],self.source.swing.get())
+        return make_project(self.blocks,self.slots(),int(self.source.bpm.get()),[v.get() for v in self.source.sounds],[v.get() for v in self.source.volumes],[v.get() for v in self.source.mutes],[v.get() for v in self.source.solos],self.source.swing.get(),self.source.fx_enabled.get(),self.source.fx_settings())
     def audio(self):
         p=self.project()
-        return render_song(p['timeline'],p['slots'],p['bpm'],p['sounds'],p['volumes'],p['mutes'],p['solos'],p['swing'],self.source.data_dir)
-    def play(self):self.source.play_pcm(self.audio,'Morceau V9')
-    def export(self):self.source.export_audio(self.audio,'moktek-morceau-v9.wav')
+        return render_song(p['timeline'],p['slots'],p['bpm'],p['sounds'],p['volumes'],p['mutes'],p['solos'],p['swing'],self.source.data_dir,p['fx_enabled'],p['master_fx'])
+    def play(self):self.source.play_pcm(self.audio,'Morceau V19')
+    def export(self):self.source.export_audio(self.audio,'moktek-morceau-v19.wav')
     def save(self):
         try:p=self.project()
         except Exception as exc:messagebox.showerror('Sauvegarde',str(exc),parent=self);return
@@ -90,7 +91,7 @@ class SongArranger(tk.Toplevel):
         try:
             p=load_project(path)
             # Restore mixer settings and A–D slots; no MIDI messages are sent.
-            self.source.stop();self.source.slots=p['slots'];self.source.bpm.set(p['bpm']);self.source.swing.set(p['swing'])
+            self.source.stop();self.source.slots=p['slots'];self.source.bpm.set(p['bpm']);self.source.swing.set(p['swing']);self.source.fx_enabled.set(p['fx_enabled']);self.source.fx_gain.set(p['master_fx']['gain']);self.source.fx_drive.set(p['master_fx']['drive']);self.source.fx_echo.set(p['master_fx']['echo']);self.source.fx_cutoff.set(p['master_fx']['cutoff'])
             for var,v in zip(self.source.sounds,p['sounds']):var.set(v)
             for var,v in zip(self.source.volumes,p['volumes']):var.set(v)
             for var,v in zip(self.source.mutes,p['mutes']):var.set(v)

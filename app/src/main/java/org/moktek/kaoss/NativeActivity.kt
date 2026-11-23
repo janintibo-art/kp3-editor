@@ -137,10 +137,28 @@ open class NativeActivity : ComponentActivity() {
     }}
    }
    if(!stage){
-    val tabs=listOf("LIVE" to "LIVE","SEQ" to "SEQ","STUDIO" to "STUDIO","MOTION" to "MOTION","SESSIONS" to "SESSIONS","MIDI" to "MIDI / USB")
+    val tabs=listOf("LIVE" to "LIVE","SEQ" to "SEQ","STUDIO" to "STUDIO","MOTION" to "MOTION","SESSIONS" to "SESSIONS","MIDI" to "MIDI / USB","TUTOS" to "TUTOS")
     tabs.chunked(if(wide)6 else 3).forEach{group->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(4.dp)){group.forEach{(label,target)->CompactKey(label,Modifier.weight(1f),tab==target){tab=target}}}}
    }
    when(tab){
+    "TUTOS" -> {
+     val guides=listOf(
+      "DÉMARRAGE RAPIDE" to "Dans LIVE, déplace le doigt sur le pad XY. Sans Korg connecté, la simulation ne produit pas de son. Ouvre SEQ pour créer un rythme et STUDIO pour travailler sur les sons.",
+      "MIDI / KORG" to "Branche un KP3/KP3+ alimenté via USB-MIDI ou interface OTG. Dans MIDI / USB, actualise puis choisis un port. Les commandes restent expérimentales, sans transfert de mémoire Korg.",
+      "SÉQUENCEUR" to "Dans SEQ, sélectionne 16, 32 ou 64 pas, touche les cases pour activer les frappes, règle les volumes, puis utilise SAUVER ou EXPORTER BOUCLE WAV.",
+      "SAMPLE STUDIO / SYNTH FACTORY" to "Depuis STUDIO, importe ou génère des sons, écoute-les et exporte-les en WAV. Les moteurs Windows et Android peuvent produire des résultats différents.",
+      "PROJETS / SAUVEGARDES" to "Dans le menu ⋮ puis Fichiers Korg et sauvegardes, exporte un ZIP avant toute restauration. Les projets communs n’appliquent que les éléments compatibles.",
+      "TESTS DE MATÉRIEL" to "Pour un KP3/KP3+ réel, teste la détection MIDI, les banques, le XY et les programmes un par un. Aucun résultat n’est considéré validé avant essai sur l’appareil.")
+     Text("TUTOS / AIDE",color=Red,fontSize=22.sp,fontWeight=FontWeight.Bold)
+     guides.forEach { (name,explain)->
+      var opened by remember(name) { mutableStateOf(false) }
+      Rack(name) {
+       CompactKey(if(opened) "MASQUER" else "VOIR LES ÉTAPES",Modifier.fillMaxWidth()) { opened=!opened }
+       if(opened) Text(explain,color=Bone,fontSize=13.sp)
+      }
+     }
+    }
+    
     "SEQ" -> { TribeSequencer(pattern) }
     "LIVE" -> {
      val controls: @Composable ()->Unit = {
