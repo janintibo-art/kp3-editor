@@ -22,6 +22,8 @@ jobs:
         run: python -m py_compile desktop/main.py desktop/librarian.py desktop/synth_factory.py desktop/sequencer_engine.py desktop/sequencer_ui.py desktop/arranger_ui.py desktop/arranger_engine.py desktop/korg_connection.py desktop/midi_profiles.py desktop/korg_test_wizard.py desktop/project_exchange.py desktop/portable_synth.py desktop/common_project_v16.py desktop/project_library_v17.py desktop/mixer_fx_v18.py desktop/fx_presets_v19.py desktop/tutos_v19.py desktop/workspace_v21.py desktop/workspace_tools_v22.py desktop/sample_bridge_v23.py desktop/library_panel_v24.py desktop/sample_analysis_v26.py
       - name: Contrôler les ressources de l'interface
         run: python -c "import ast; ast.parse(open('desktop/main.py', encoding='utf-8').read())"
+      - name: Tests identification V27
+        run: python tests/test_korg_identity_v27.py
       - name: Construire le logiciel Windows
         run: python -m PyInstaller --noconfirm --clean --onefile --windowed --name moktek-kaoss-studio-windows --collect-all mido --collect-all rtmidi desktop/main.py
       - name: Vérifier la présence de l'EXE
@@ -36,5 +38,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: windows-v26.0-${{ github.run_number }}
-          name: mokteK Kaoss Studio Windows V26.0
+          name: mokteK Kaoss Studio Windows V27.0
           files: dist/moktek-kaoss-studio-windows.exe

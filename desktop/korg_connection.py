@@ -63,7 +63,7 @@ def hexbytes(data):
 class KorgConnectionCenter(tk.Toplevel):
     def __init__(self, master):
         super().__init__(master)
-        self.title('mokteK // KORG CONNECTION CENTER  •  V12')
+        self.title('mokteK // KORG AUTO DETECT  •  V27')
         self.geometry('950x720')
         self.minsize(760, 590)
         self.configure(bg=BG)
@@ -72,6 +72,7 @@ class KorgConnectionCenter(tk.Toplevel):
         self.queue = queue.Queue(maxsize=256)
         self.events = deque(maxlen=400)
         self.identity = None
+        self.detected_level = tk.StringVar(value='NIVEAU 0 · Aucun appareil détecté')
         self.profiles_window = None
         self.test_wizard = None
         self.selected_input = tk.StringVar()
@@ -96,11 +97,12 @@ class KorgConnectionCenter(tk.Toplevel):
         header = tk.Frame(self, bg='#332b25', padx=15, pady=12)
         header.pack(fill='x')
         self.label(header, 'KORG CONNECTION CENTER', 20, RED).pack(side='left')
-        self.label(header, 'V12  •  DIAGNOSTIC NON DESTRUCTIF', 10, MUTED).pack(side='right')
+        self.label(header, 'V27  •  IDENTIFICATION NON DESTRUCTIVE', 10, MUTED).pack(side='right')
         tk.Frame(self, bg=RED, height=3).pack(fill='x')
         panel = tk.Frame(self, bg=PANEL, padx=16, pady=12)
         panel.pack(fill='x', padx=12, pady=10)
         self.label(panel, 'Ports MIDI Windows (entrée = réponses, sortie = requêtes)', 11).pack(anchor='w')
+        self.label(panel, 'AUTO DETECT : vérification progressive, sans écritures matérielles', 10, RED).pack(anchor='w')
         for title, variable, key in [('ENTRÉE MIDI', self.selected_input, 'input'),
                                       ('SORTIE MIDI', self.selected_output, 'output')]:
             self.label(panel, title, 9, MUTED).pack(anchor='w', pady=(9, 3))
@@ -110,7 +112,7 @@ class KorgConnectionCenter(tk.Toplevel):
         controls = tk.Frame(panel, bg=PANEL)
         controls.pack(fill='x', pady=8)
         for title, command in [('ACTUALISER', self.refresh), ('CONNECTER', self.connect),
-                               ('DÉCONNECTER', self.disconnect), ('DEMANDER IDENTITÉ', self.request_identity)]:
+                               ('DÉCONNECTER', self.disconnect), ('IDENTIFIER SANS ÉCRITURE', self.request_identity)]:
             self.button(controls, title, command).pack(side='left', padx=(0, 6))
         self.button(panel, 'PROFILS MIDI KP3 / KP3+  •  V11', self.open_profiles).pack(anchor='w', pady=(4, 6))
         self.button(panel, 'ASSISTANT DE TESTS KORG  •  V12', self.open_test_wizard).pack(anchor='w', pady=(2, 6))
@@ -120,6 +122,8 @@ class KorgConnectionCenter(tk.Toplevel):
                      state='readonly').pack(anchor='w')
         self.label(panel, 'Les commandes qui écrivent des samples, programmes ou mémoires sont désactivées.', 10, RED).pack(anchor='w', pady=(10, 0))
         self.label(self, 'ÉTAT DE LA CONNEXION', 10, MUTED).pack(anchor='w', padx=18)
+        tk.Label(self, textvariable=self.detected_level, bg=BG, fg=RED,
+                 font=('Consolas', 11, 'bold'), anchor='w').pack(fill='x', padx=18, pady=(4, 2))
         tk.Label(self, textvariable=self.state, fg='#98dd9e', bg=BG,
                  font=('Consolas', 11, 'bold'), anchor='w').pack(fill='x', padx=18, pady=3)
         tk.Label(self, textvariable=self.result, fg=TEXT, bg=BG,
@@ -163,6 +167,8 @@ class KorgConnectionCenter(tk.Toplevel):
             if self.selected_output.get() not in outputs:
                 self.selected_output.set(outputs[0] if outputs else '')
             self.append('SCAN', f'{len(inputs)} entrée(s), {len(outputs)} sortie(s)')
+            if self.input_port is None:
+                self.detected_level.set('NIVEAU 1 · Ports MIDI détectés (modèle non confirmé)' if inputs or outputs else 'NIVEAU 0 · Aucun port MIDI détecté')
         except Exception as exc:
             self.state.set(f'Erreur de détection : {exc}')
             self.append('ERREUR', str(exc))
@@ -192,6 +198,8 @@ class KorgConnectionCenter(tk.Toplevel):
             self.append('ERREUR', str(exc))
             return
         self.state.set('PORTS CONNECTÉS — modèle Korg non vérifié')
+        self.detected_level.set('NIVEAU 2 · Ports ouverts, aucune identité confirmée')
+        self.identity = None
         self.append('CONNECT', f'IN={ins} / OUT={outs}')
 
     def disconnect(self):
@@ -204,6 +212,7 @@ class KorgConnectionCenter(tk.Toplevel):
                     pass
                 setattr(self, key, None)
         self.state.set('SIMULATION / NON CONNECTÉ')
+        self.detected_level.set('NIVEAU 0 · Déconnecté')
 
     def request_identity(self):
         if self.output_port is None or self.input_port is None:
@@ -212,7 +221,7 @@ class KorgConnectionCenter(tk.Toplevel):
         try:
             self.output_port.send(mido.Message('sysex', data=IDENTITY_REQUEST))
             self.append('OUT', 'F0 7E 7F 06 01 F7  (Universal Identity Request)')
-            self.result.set('Demande envoyée ; réponse attendue. Absence de réponse ≠ incompatibilité.')
+            self.result.set('Demande standard envoyée ; attente de réponse. Absence de réponse ≠ incompatibilité.')
         except Exception as exc:
             self.append('ERREUR', f'Envoi identité : {exc}')
             self.state.set(f'Échec d’envoi : {exc}')
@@ -234,6 +243,7 @@ class KorgConnectionCenter(tk.Toplevel):
                 self.result.set('Identité MIDI : ' + json.dumps(info, ensure_ascii=False)
                                 + ' — KP3/KP3+ NON CONFIRMÉ')
                 self.state.set('IDENTITÉ MIDI REÇUE — modèle exact non vérifié')
+                self.detected_level.set('NIVEAU 3 · Fabricant Korg confirmé par SysEx ; modèle non confirmé' if info['id_fabricant'] == '42' else 'NIVEAU 3 · Identité MIDI reçue ; fabricant autre que Korg')
         self.after_id = self.after(100, self.drain)
 
     def open_profiles(self):
@@ -250,17 +260,19 @@ class KorgConnectionCenter(tk.Toplevel):
 
     def export_report(self):
         path = filedialog.asksaveasfilename(parent=self, defaultextension='.zip',
-                    initialfile='moktek_korg_diagnostic_v11.zip',
+                    initialfile='moktek_korg_autodetect_v27.zip',
                     filetypes=[('Archive ZIP', '*.zip')])
         if not path:
             return
         report = {
-            'application': 'mokteK Kaoss Studio Windows', 'module': 'Korg Connection Center V11',
+            'application': 'mokteK Kaoss Studio Windows', 'module': 'Korg Auto Detect V27',
+            'niveau_de_preuve': self.detected_level.get(),
             'date': datetime.now().isoformat(timespec='seconds'),
             'modele_declare': self.model_hint.get(), 'identite_midi': self.identity,
             'entree': self.selected_input.get(), 'sortie': self.selected_output.get(),
             'etat': self.state.get(), 'transfert_memoire': 'non supporté',
-            'tests_materiels_valides': False, 'profils_midi': 'locaux, non vérifiés sur KP3/KP3+',
+            'tests_materiels_valides': False,
+            'protocole': 'Universal Non-Realtime Identity Request seulement', 'profils_midi': 'locaux, non vérifiés sur KP3/KP3+',
         }
         try:
             with zipfile.ZipFile(path, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
@@ -268,7 +280,7 @@ class KorgConnectionCenter(tk.Toplevel):
                 archive.writestr('journal_midi.txt', '\n'.join(self.events) + '\n')
                 archive.writestr('LIRE_AVANT_PARTAGE.txt',
                     'Vérifier les noms de périphériques et le journal avant partage : ils peuvent contenir des informations locales.\n'
-                    'Aucune identification de modèle KP3/KP3+ n’est confirmée sans test matériel.\n')
+                    'Une réponse MIDI Korg valide ne prouve PAS à elle seule le modèle KP3/KP3+.\n')
             self.append('RAPPORT', 'Rapport ZIP enregistré')
         except Exception as exc:
             messagebox.showerror('Export impossible', str(exc), parent=self)

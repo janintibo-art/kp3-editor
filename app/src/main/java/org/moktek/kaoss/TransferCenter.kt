@@ -30,6 +30,8 @@ private class IdentityMonitor(private val context:Context) {
   private set
  var foundIdentity by mutableStateOf("Aucune réponse d’identité reçue")
   private set
+ var recognitionLevel by mutableStateOf("NIVEAU 0 • Aucune identité confirmée")
+  private set
  var devices by mutableStateOf(emptyList<MidiDeviceInfo>())
   private set
  val events = mutableStateListOf<String>()
@@ -43,6 +45,7 @@ private class IdentityMonitor(private val context:Context) {
  fun refresh() {
   devices=manager?.devices?.toList() ?: emptyList()
   if(devices.isEmpty() && opened==null) state="AUCUN PÉRIPHÉRIQUE MIDI"
+  if(opened==null) recognitionLevel=if(devices.isEmpty()) "NIVEAU 0 • Aucun port MIDI" else "NIVEAU 1 • Port MIDI détecté, modèle non vérifié"
  }
  fun close() {
   epoch++
@@ -50,7 +53,7 @@ private class IdentityMonitor(private val context:Context) {
   runCatching { sendPort?.close() }
   runCatching { opened?.close() }
   receiver=null; readPort=null; sendPort=null; opened=null
-  framer.reset();selected="Aucun";state="DÉCONNECTÉ"
+  framer.reset();selected="Aucun";state="DÉCONNECTÉ";recognitionLevel="NIVEAU 0 • Déconnecté"
  }
  fun open(info:MidiDeviceInfo) {
   close()
@@ -80,6 +83,7 @@ private class IdentityMonitor(private val context:Context) {
        val identity=identifyMidiReply(frame)
        if(identity!=null){
         foundIdentity="${identity.manufacturer} | canal ID ${identity.deviceId} | famille ${identity.family} | modèle ${identity.model} | firmware ${identity.version}"
+        recognitionLevel=if(identity.manufacturer.contains("Korg",ignoreCase=true)) "NIVEAU 3 • Fabricant Korg confirmé, modèle KP3/KP3+ non confirmé" else "NIVEAU 3 • Réponse MIDI reçue, fabricant non confirmé Korg"
         events.add(0,"IDENTITÉ : $foundIdentity")
        }else if(frame.size>2 && (frame[1].toInt() and 255)==0x42){
         events.add(0,"SysEx Korg reçu (${frame.size} octets) : non interprété et non sauvegardé")
@@ -92,6 +96,7 @@ private class IdentityMonitor(private val context:Context) {
    receiver=incoming
    runCatching{read?.connect(incoming)}
    selected=info.properties.getString(MidiDeviceInfo.PROPERTY_NAME) ?: "Appareil MIDI #${info.id}"
+   recognitionLevel="NIVEAU 2 • Ports ouverts, identité attendue"
    state=when {
     read!=null && send!=null -> "CONNECTÉ • RX + TX identité"
     read!=null -> "ÉCOUTE SEULE • pas de port d'envoi"
@@ -108,16 +113,18 @@ private class IdentityMonitor(private val context:Context) {
    .onSuccess{events.add(0,"TX F0 7E 7F 06 01 F7 (demande d’identité seule)")}
    .onFailure{state="ERREUR D’ENVOI : ${it.message}"}
  }
- fun clear(){events.clear();bytesReceived=0;foundIdentity="Aucune réponse d’identité reçue"}
+ fun clear(){events.clear();bytesReceived=0;foundIdentity="Aucune réponse d’identité reçue";recognitionLevel="NIVEAU 2 • Identité non confirmée"}
  fun usbDescription():String {
   val usb=context.getSystemService(Context.USB_SERVICE) as? UsbManager
-  return usb?.deviceList?.values?.joinToString("\n"){"VID %04X • PID %04X".format(Locale.US,it.vendorId,it.productId)}?.ifBlank{"Aucun périphérique USB visible"}?:"USB non disponible"
+  return usb?.deviceList?.values?.joinToString("
+"){"VID %04X • PID %04X".format(Locale.US,it.vendorId,it.productId)}?.ifBlank{"Aucun périphérique USB visible"}?:"USB non disponible"
  }
  fun report(declaredModel:String)=buildString {
-  appendLine("mokteK KAOSS STUDIO — V17 / IDENTITÉ MIDI")
+  appendLine("mokteK KAOSS STUDIO — V27 / KORG AUTO DETECT")
   appendLine("Modèle choisi par l’utilisateur : $declaredModel (non confirmé par cette sélection)")
   appendLine("État : $state ; périphérique ouvert : $selected")
   appendLine("Réponse : $foundIdentity")
+  appendLine("Niveau de preuve : $recognitionLevel")
   appendLine("USB : ${usbDescription()}")
   appendLine("Périphériques MIDI Android : ${devices.size}")
   appendLine("Octets reçus : $bytesReceived")
@@ -141,7 +148,7 @@ internal fun TransferCenter(model:String) {
  }
  DisposableEffect(monitor){monitor.refresh();onDispose{monitor.close()}}
  Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-  Text("TRANSFER CENTER • V17",fontSize=20.sp,color=red)
+  Text("KORG AUTO DETECT • V27",fontSize=20.sp,color=red)
   Text("IDENTIFICATION MIDI SANS ÉCRITURE",fontSize=12.sp,color=bone)
   Text("La demande d’identité standard ne modifie ni les réglages ni les samples. Les transferts Korg restent désactivés.",fontSize=11.sp,color=bone)
   Column(Modifier.fillMaxWidth().background(card,RoundedCornerShape(8.dp)).border(1.dp,steel,RoundedCornerShape(8.dp)).padding(10.dp),verticalArrangement=Arrangement.spacedBy(7.dp)) {
@@ -149,6 +156,7 @@ internal fun TransferCenter(model:String) {
    Text(monitor.state,fontSize=12.sp,color=bone)
    Text("PORT : ${monitor.selected}",fontSize=11.sp,color=bone)
    Text(monitor.foundIdentity,fontSize=11.sp,color=bone)
+   Text(monitor.recognitionLevel,fontSize=12.sp,color=red)
    Text("USB : ${monitor.usbDescription()}",fontSize=10.sp,color=bone)
    Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
     OutlinedButton(onClick={monitor.refresh()},modifier=Modifier.weight(1f)){Text("ACTUALISER",fontSize=10.sp)}
@@ -175,7 +183,7 @@ internal fun TransferCenter(model:String) {
    Text("JOURNAL DE DIAGNOSTIC",fontSize=12.sp,color=red)
    Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
     OutlinedButton(onClick={monitor.clear()},modifier=Modifier.weight(1f)){Text("EFFACER",fontSize=10.sp)}
-    OutlinedButton(onClick={export.launch("moktek_identite_v17.txt")},modifier=Modifier.weight(1f)){Text("EXPORTER",fontSize=10.sp)}
+    OutlinedButton(onClick={export.launch("moktek_identite_v27.txt")},modifier=Modifier.weight(1f)){Text("EXPORTER",fontSize=10.sp)}
    }
    if(monitor.events.isEmpty())Text("Aucun message reçu.",fontSize=11.sp,color=bone)
    monitor.events.take(14).forEach{Text(it,fontSize=10.sp,fontFamily=FontFamily.Monospace,color=bone)}
