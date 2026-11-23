@@ -9,8 +9,9 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk, filedialog, messagebox
 
-VERSION = "1.0"
-BG, PANEL, STEEL, RED, TEXT, MUTED = "#100f10", "#221d1b", "#887766", "#ff493e", "#e9dac2", "#b9a99b"
+VERSION = "2.0"
+BG, PANEL, STEEL, RED, TEXT, MUTED = "#100f10", "#211d1a", "#887766", "#ff493e", "#e9dac2", "#b9a99b"
+DARK_RED, GLOW, RACK, GRID = "#381315", "#ff8272", "#332b25", "#702126"
 DATA_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "mokteK-Kaoss-Studio"
 try:
     import mido
@@ -21,8 +22,8 @@ class Studio(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(f"mokteK • KAOSS STUDIO Windows V{VERSION}")
-        self.geometry("1060x690")
-        self.minsize(780, 580)
+        self.geometry("1200x760")
+        self.minsize(950, 640)
         self.configure(bg=BG)
         self.port = None
         self.recording = False
@@ -47,6 +48,10 @@ class Studio(tk.Tk):
         self.motion_info = tk.StringVar(value="Aucun mouvement enregistré")
         self.message = tk.StringVar(value="Les fonctions MIDI nécessitent un essai sur le matériel réel.")
         self.option_add("*Font", "Segoe UI 10")
+        self.option_add("*TCombobox*Listbox.background", PANEL)
+        style = ttk.Style(self)
+        style.theme_use("clam")
+        style.configure("TCombobox", fieldbackground="#1a1515", background=RACK, foreground=TEXT, arrowcolor=RED, bordercolor=STEEL)
         self._ui()
         self.protocol("WM_DELETE_WINDOW", self.close)
         self.after(50, self.tick)
@@ -56,27 +61,29 @@ class Studio(tk.Tk):
         return tk.Label(parent, text=value, fg=fg, bg=parent.cget("bg"), font=("Segoe UI", size, "bold" if bold else "normal"))
 
     def btn(self, parent, label, command, width=None):
-        return tk.Button(parent, text=label, command=command, bg="#392e2c", fg=TEXT,
+        return tk.Button(parent, text=label, command=command, bg="#392a28", fg=TEXT,
                          activebackground="#75201c", activeforeground="white",
-                         relief="flat", highlightthickness=1, highlightbackground=STEEL,
+                         relief="flat", borderwidth=1, highlightthickness=1, highlightbackground=STEEL,
                          padx=10, pady=10, cursor="hand2", width=width)
 
     def panel(self, parent, title):
-        f = tk.Frame(parent, bg=PANEL, highlightbackground=STEEL, highlightthickness=1, padx=12, pady=12)
-        self.text(f, title, 12, RED, True).pack(anchor="w", pady=(0, 10))
+        f = tk.Frame(parent, bg=PANEL, highlightbackground=STEEL, highlightthickness=2, padx=12, pady=12)
+        self.text(f, title, 11, TEXT, True).pack(anchor="w", pady=(0, 10))
+        tk.Frame(f, bg=RED, height=2).pack(fill="x", pady=(0, 9))
         return f
 
     def _ui(self):
-        top = tk.Frame(self, bg=BG, padx=18, pady=14)
+        top = tk.Frame(self, bg=RACK, padx=18, pady=12)
         top.pack(fill="x")
-        self.text(top, "mokteK  //  KAOSS STUDIO", 20, RED, True).pack(side="left")
+        self.text(top, "mokteK  //  KAOSS STUDIO", 23, RED, True).pack(side="left")
         self.text(top, f"WINDOWS V{VERSION}  •  LIVE", 11, MUTED, True).pack(side="right")
-        tk.Label(self, textvariable=self.status, bg=BG, fg="#8fe49a", anchor="w", padx=18).pack(fill="x")
+        tk.Frame(self, bg=RED, height=3).pack(fill="x")
+        tk.Label(self, textvariable=self.status, bg=BG, fg="#8fe49a", anchor="w", padx=18, pady=7, font=("Consolas", 10, "bold")).pack(fill="x")
 
         body = tk.Frame(self, bg=BG, padx=12, pady=10)
         body.pack(fill="both", expand=True)
         body.grid_columnconfigure(0, weight=1, minsize=200)
-        body.grid_columnconfigure(1, weight=3, minsize=360)
+        body.grid_columnconfigure(1, weight=4, minsize=420)
         body.grid_columnconfigure(2, weight=1, minsize=200)
         body.grid_rowconfigure(0, weight=1)
         left = self.panel(body, "APPAREIL / PROGRAMME")
@@ -99,12 +106,12 @@ class Studio(tk.Tk):
         self.btn(left, "SAUVER SESSION", self.save_session).pack(fill="x", pady=(28, 4))
         self.btn(left, "OUVRIR SESSION", self.open_session).pack(fill="x")
 
-        center = self.panel(body, "XY TOUCH PAD  //  PERFORMANCE")
+        center = self.panel(body, "◉  TOUCH PAD   •   LIVE CONTROL")
         center.grid(row=0, column=1, sticky="nsew", padx=5)
         center.grid_rowconfigure(1, weight=1)
         center.grid_columnconfigure(0, weight=1)
         self.text(center, "Contrôle XY expérimental • CC 12 / CC 13 / Touch CC 92", 9, MUTED).grid(row=0, column=0, sticky="w")
-        self.canvas = tk.Canvas(center, bg="#270b0c", highlightbackground=RED, highlightthickness=2, cursor="crosshair")
+        self.canvas = tk.Canvas(center, bg="#19090c", highlightbackground=RED, highlightthickness=3, cursor="crosshair", relief="flat")
         self.canvas.grid(row=1, column=0, sticky="nsew", pady=8)
         self.canvas.bind("<Configure>", lambda e: self.draw_pad())
         self.canvas.bind("<ButtonPress-1>", self.xy_down)
@@ -119,6 +126,7 @@ class Studio(tk.Tk):
         banks.grid(row=3, column=0, sticky="ew", pady=(10, 0))
         for i, name in enumerate("ABCD"):
             b = self.btn(banks, name, lambda: None)
+            b.configure(bg="#651d1d", activebackground=RED, font=("Segoe UI", 17, "bold"), pady=12)
             b.pack(side="left", expand=True, fill="x", padx=4)
             b.bind("<ButtonPress-1>", lambda e, note=36+i: self.note(note, True))
             b.bind("<ButtonRelease-1>", lambda e, note=36+i: self.note(note, False))
@@ -154,6 +162,7 @@ class Studio(tk.Tk):
         footer = tk.Frame(self, bg=BG, padx=18, pady=8)
         footer.pack(fill="x")
         tk.Label(footer, textvariable=self.message, bg=BG, fg=MUTED, anchor="w").pack(fill="x")
+        self.text(footer, "mokteK  /  KAOSS STUDIO  •  Windows  •  MIDI EXPÉRIMENTAL  •  non affilié à Korg", 9, STEEL).pack(anchor="e")
 
     def send(self, typ, **data):
         if self.port is None or mido is None:
@@ -195,17 +204,30 @@ class Studio(tk.Tk):
         c = self.canvas
         c.delete("all")
         w, h = max(1, c.winfo_width()), max(1, c.winfo_height())
+        import math
+        # Maillage rouge comme le pad Android Compose.
         for i in range(1, 8):
-            x = w*i/8
-            y = h*i/8
-            c.create_line(x, 0, x, h, fill="#582322")
-            c.create_line(0, y, w, y, fill="#582322")
+            gx = w*i/8
+            gy = h*i/8
+            c.create_line(gx, 0, gx, h, fill=GRID, width=1)
+            c.create_line(0, gy, w, gy, fill=GRID, width=1)
+        # Motif circulaire/spirale discret au centre, visible au repos.
+        points = []
+        radius = min(w, h) * .40
+        for i in range(151):
+            t = i/150
+            angle = t*15.7
+            points.extend((w/2+math.cos(angle)*radius*t, h/2+math.sin(angle)*radius*t))
+        c.create_line(*points, fill="#512022", width=2, smooth=False)
         px = self.last_xy[0]/127*w
         py = (127-self.last_xy[1])/127*h
-        c.create_line(px, 0, px, h, fill="#a62b2b")
-        c.create_line(0, py, w, py, fill="#a62b2b")
-        c.create_oval(px-15, py-15, px+15, py+15, outline=RED, width=3)
-        c.create_oval(px-5, py-5, px+5, py+5, fill=TEXT, outline="")
+        c.create_line(px, 0, px, h, fill="#a62b2b", width=2)
+        c.create_line(0, py, w, py, fill="#a62b2b", width=2)
+        c.create_oval(px-40, py-40, px+40, py+40, outline="#77262c", width=2)
+        c.create_oval(px-27, py-27, px+27, py+27, outline="#a83136", width=2)
+        c.create_oval(px-17, py-17, px+17, py+17, outline=RED, width=3)
+        c.create_oval(px-7, py-7, px+7, py+7, fill=TEXT, outline="")
+        c.create_rectangle(1, 1, w-2, h-2, outline=STEEL, width=2)
 
     def set_xy(self, x, y, gate=None, record=True):
         self.last_xy = (x, y)
