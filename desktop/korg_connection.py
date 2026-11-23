@@ -13,6 +13,7 @@ from tkinter import ttk, filedialog, messagebox
 import zipfile
 import io
 from midi_profiles import MidiProfileWindow
+from korg_test_wizard import KorgTestWizard
 
 try:
     import mido
@@ -62,7 +63,7 @@ def hexbytes(data):
 class KorgConnectionCenter(tk.Toplevel):
     def __init__(self, master):
         super().__init__(master)
-        self.title('mokteK // KORG CONNECTION CENTER  •  V11')
+        self.title('mokteK // KORG CONNECTION CENTER  •  V12')
         self.geometry('950x720')
         self.minsize(760, 590)
         self.configure(bg=BG)
@@ -72,6 +73,7 @@ class KorgConnectionCenter(tk.Toplevel):
         self.events = deque(maxlen=400)
         self.identity = None
         self.profiles_window = None
+        self.test_wizard = None
         self.selected_input = tk.StringVar()
         self.selected_output = tk.StringVar()
         self.model_hint = tk.StringVar(value='Inconnu (non vérifié)')
@@ -94,7 +96,7 @@ class KorgConnectionCenter(tk.Toplevel):
         header = tk.Frame(self, bg='#332b25', padx=15, pady=12)
         header.pack(fill='x')
         self.label(header, 'KORG CONNECTION CENTER', 20, RED).pack(side='left')
-        self.label(header, 'V10  •  DIAGNOSTIC NON DESTRUCTIF', 10, MUTED).pack(side='right')
+        self.label(header, 'V12  •  DIAGNOSTIC NON DESTRUCTIF', 10, MUTED).pack(side='right')
         tk.Frame(self, bg=RED, height=3).pack(fill='x')
         panel = tk.Frame(self, bg=PANEL, padx=16, pady=12)
         panel.pack(fill='x', padx=12, pady=10)
@@ -111,6 +113,7 @@ class KorgConnectionCenter(tk.Toplevel):
                                ('DÉCONNECTER', self.disconnect), ('DEMANDER IDENTITÉ', self.request_identity)]:
             self.button(controls, title, command).pack(side='left', padx=(0, 6))
         self.button(panel, 'PROFILS MIDI KP3 / KP3+  •  V11', self.open_profiles).pack(anchor='w', pady=(4, 6))
+        self.button(panel, 'ASSISTANT DE TESTS KORG  •  V12', self.open_test_wizard).pack(anchor='w', pady=(2, 6))
         self.label(panel, 'Sélection de modèle (indication manuelle, jamais preuve d’identification)', 9, MUTED).pack(anchor='w', pady=(7, 3))
         ttk.Combobox(panel, textvariable=self.model_hint,
                      values=['Inconnu (non vérifié)', 'KP3 (déclaré)', 'KP3+ (déclaré)'],
@@ -239,6 +242,12 @@ class KorgConnectionCenter(tk.Toplevel):
             return
         self.profiles_window = MidiProfileWindow(self)
 
+    def open_test_wizard(self):
+        if self.test_wizard is not None and self.test_wizard.winfo_exists():
+            self.test_wizard.lift()
+            return
+        self.test_wizard = KorgTestWizard(self, self)
+
     def export_report(self):
         path = filedialog.asksaveasfilename(parent=self, defaultextension='.zip',
                     initialfile='moktek_korg_diagnostic_v11.zip',
@@ -265,6 +274,8 @@ class KorgConnectionCenter(tk.Toplevel):
             messagebox.showerror('Export impossible', str(exc), parent=self)
 
     def close(self):
+        if self.test_wizard is not None and self.test_wizard.winfo_exists():
+            self.test_wizard.destroy()
         if self.profiles_window is not None and self.profiles_window.winfo_exists():
             self.profiles_window.destroy()
         if self.after_id is not None:
