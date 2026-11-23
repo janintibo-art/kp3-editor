@@ -4,6 +4,7 @@ No Korg hardware writes. Android native backups are accepted as import sources.
 from __future__ import annotations
 import hashlib, io, json, re, shutil, uuid, wave, zipfile
 from pathlib import Path
+from portable_project import from_windows, from_android_prefs, to_windows, _validate
 
 MAX_TOTAL=192*1024*1024
 MAX_FILE=48*1024*1024
@@ -91,6 +92,7 @@ def export_exchange(data_dir,destination,session=None,pattern=None):
         if len(raw)>200000 or _json(raw).get('format') not in ('moktek-windows-sequencer-v1','moktek-windows-sequencer-v2','moktek-windows-sequencer-v3'):
             raise ValueError('Pattern Windows non reconnu')
         records['metadata/windows-pattern.json']=raw
+        records['metadata/portable-pattern.json']=json.dumps(from_windows(_json(raw)),ensure_ascii=False).encode('utf-8')
     total=sum(map(len,records.values()))
     if total>MAX_TOTAL:raise ValueError('Archive supérieure à 192 Mo')
     manifest={'format':FORMAT,'version':1,'origin':'windows','hardwareWrite':False,
@@ -137,6 +139,18 @@ def import_exchange(data_dir,source):
             if not re.fullmatch(r'(metadata|prefs)/[A-Za-z0-9._-]+\.json',name):continue
             dest=inbox/(uuid.uuid4().hex+'-'+Path(name).name)
             dest.write_bytes(records[name]);copied.append(dest)
+        # Convert compatible pattern without overwriting any user work.
+        portable=None
+        if 'metadata/portable-pattern.json' in records:
+            portable=_validate(_json(records['metadata/portable-pattern.json']))
+        elif 'prefs/patterns_v9.json' in records:
+            # Native Android backup : extract its saved 6-track grid.
+            try:portable=from_android_prefs(_json(records['prefs/patterns_v9.json']))
+            except (ValueError,TypeError,KeyError):portable=None
+        if portable is not None:
+            converted=json.dumps(to_windows(portable),ensure_ascii=False,indent=2).encode('utf-8')
+            dest=inbox/(uuid.uuid4().hex+'-portable-pattern-windows.json')
+            dest.write_bytes(converted);copied.append(dest)
         slots.update(new_slots)
         temp=index.with_name('library.json.tmp')
         try:

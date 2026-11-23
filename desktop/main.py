@@ -20,7 +20,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk, filedialog, messagebox
 
-VERSION = "13.0"
+VERSION = "14.0"
 BG, PANEL, STEEL, RED, TEXT, MUTED = "#100f10", "#211d1a", "#887766", "#ff493e", "#e9dac2", "#b9a99b"
 DARK_RED, GLOW, RACK, GRID = "#381315", "#ff8272", "#332b25", "#702126"
 DATA_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "mokteK-Kaoss-Studio"
@@ -409,16 +409,16 @@ class Studio(tk.Tk):
 
     def open_exchange(self):
         win=tk.Toplevel(self)
-        win.title("mokteK • Échanges Android / Windows V13")
+        win.title("mokteK • Échanges Android / Windows V14")
         win.geometry("760x390")
         win.configure(bg=BG)
         body=self.panel(win,"ÉCHANGES DE PROJETS • SANS ÉCRITURE SUR KORG")
         body.pack(fill="both",expand=True,padx=15,pady=14)
-        self.text(body,"Transfert WAV PCM 16 bits et conservation des métadonnées non converties.",10,MUTED).pack(anchor="w",pady=5)
+        self.text(body,"Transfert WAV et conversion réelle du rythme 6 pistes (BPM, pas, volumes). Les paramètres avancés sont préservés dans les fichiers originaux.",10,MUTED).pack(anchor="w",pady=5)
         self.text(body,"Android → PC : importer une sauvegarde mokteK Android V14–V18 ou un ZIP V13.",10,MUTED).pack(anchor="w",pady=5)
         self.text(body,"PC → Android : exporter un ZIP V13, puis l'importer dans Korg File Center.",10,MUTED).pack(anchor="w",pady=5)
         def export():
-            dest=filedialog.asksaveasfilename(parent=win,defaultextension=".zip",initialfile="moktek_echange_v13.zip",filetypes=[("Archive ZIP","*.zip")])
+            dest=filedialog.asksaveasfilename(parent=win,defaultextension=".zip",initialfile="moktek_echange_v14.zip",filetypes=[("Archive ZIP","*.zip")])
             if not dest:return
             try:
                 session=None;pattern=None
@@ -439,9 +439,9 @@ class Studio(tk.Tk):
                 result=import_exchange(DATA_DIR,src)
                 messagebox.showinfo("Import terminé",f"{result['samples']} samples ajoutés ; {result['preserved']} fichiers de métadonnées conservés dans exchange_inbox.\nRouvrir Sample Librarian pour rafraîchir.",parent=win)
             except Exception as exc:messagebox.showerror("Import annulé",str(exc),parent=win)
-        self.btn(body,"EXPORTER POUR ANDROID • ZIP V13",export).pack(fill="x",pady=8)
+        self.btn(body,"EXPORTER POUR ANDROID • ZIP V14",export).pack(fill="x",pady=8)
         self.btn(body,"IMPORTER DEPUIS ANDROID • ZIP",importer).pack(fill="x",pady=8)
-        self.text(body,"Les patterns Android et Windows ont des formats distincts : conservation sans conversion automatique.",9,MUTED).pack(anchor="w",pady=6)
+        self.text(body,"Pattern converti : disponible dans exchange_inbox, puis OUVRIR PATTERN dans Tribe Sequencer. Sons/swing/rolls Android non pris en charge.",9,MUTED).pack(anchor="w",pady=6)
 
     def open_sample_studio(self):
         """Local 16-bit PCM WAV editor; never sends proprietary data to hardware."""

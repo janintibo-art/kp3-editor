@@ -191,6 +191,19 @@ internal class KorgFileStore(private val context: Context) {
   message=withContext(Dispatchers.IO){ProjectExchangeV13.importArchive(ctx,data)}
   refs=withContext(Dispatchers.IO){store.references()}
  }}
+ var portablePattern by remember{mutableStateOf<JSONObject?>(null)}
+ val portablePicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()){uri->if(uri!=null)runTask{
+  val data=withContext(Dispatchers.IO){ctx.contentResolver.openInputStream(uri)?.use{input->
+    val out=ByteArrayOutputStream();val chunk=ByteArray(8192)
+    while(true){val n=input.read(chunk);if(n<0)break;require(out.size().toLong()+n<=192L*1048576){"ZIP trop grand"};out.write(chunk,0,n)};out.toByteArray()
+  }?:error("Archive inaccessible")}
+  portablePattern=withContext(Dispatchers.IO){PortablePatternV14.inspect(data)}
+  message="Pattern détecté : confirmation requise pour remplacer SEQ local"
+ }}
+ val portableExport=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")){uri->if(uri!=null)runTask{
+   withContext(Dispatchers.IO){val bytes=PortablePatternV14.exportSaved(ctx);ctx.contentResolver.openOutputStream(uri,"wt")?.use{it.write(bytes)}?:error("Écriture impossible")}
+   message="Pattern portable exporté vers Windows"
+ }}
  @Composable fun Control(label:String, action:()->Unit){Box(Modifier.fillMaxWidth().heightIn(min=46.dp).border(1.dp,steel,RoundedCornerShape(5.dp)).background(Color(0xff34251e)).clickable(enabled=!busy,onClick=action).padding(12.dp),contentAlignment=Alignment.Center){Text(label,color=bone,fontWeight=FontWeight.Bold,fontSize=12.sp)}}
  Text("KORG FILE CENTER",color=red,fontSize=22.sp,fontWeight=FontWeight.Bold)
  Text("KP3 / KP3+ • fichiers et sauvegardes",color=bone,fontSize=12.sp)
@@ -211,6 +224,9 @@ internal class KorgFileStore(private val context: Context) {
  Text(store.backupAudit(),color=bone,fontSize=12.sp)
  Control("EXPORTER MA SAUVEGARDE ZIP") {runTask {pending=withContext(Dispatchers.IO){store.createBackup().also{store.verifyBackup(it)}};message="Archive contrôlée : empreintes SHA-256 vérifiées";export.launch("moktek_backup_v16.zip")}}
  Control("IMPORTER UN ÉCHANGE WINDOWS V13 (WAV)") {exchangePicker.launch(arrayOf("application/zip","application/octet-stream"))}
+ Control("V14 • EXPORTER PATTERN POUR WINDOWS") {portableExport.launch("moktek_pattern_android_v14.zip")}
+ Control("V14 • IMPORTER PATTERN WINDOWS (6 PISTES)") {portablePicker.launch(arrayOf("application/zip","application/octet-stream"))}
+ if(portablePattern!=null)AlertDialog(onDismissRequest={portablePattern=null},title={Text("IMPORTER LE PATTERN ?")},text={Text("Remplace uniquement le pattern sauvegardé dans SEQ. Une copie de secours est enregistrée. Les paramètres Windows avancés (rolls, swing, sons) ne sont pas appliqués. Aucun transfert vers le KP3.")},confirmButton={TextButton(onClick={val item=portablePattern;portablePattern=null;if(item!=null)runTask{message=withContext(Dispatchers.IO){PortablePatternV14.apply(ctx,item)}}}){Text("IMPORTER")}},dismissButton={TextButton(onClick={portablePattern=null}){Text("ANNULER")}})
  Control("IMPORTER / RESTAURER UNE SAUVEGARDE") {restorePicker.launch(arrayOf("application/zip","application/octet-stream"))}
  Control("EXPORTER LA COPIE DE SECOURS") {runTask { val saved=withContext(Dispatchers.IO){File(ctx.filesDir,"moktek_recovery_before_v14_restore.zip").takeIf{it.isFile}?.readBytes() ?: error("Aucune restauration précédente")};pending=saved;export.launch("moktek_recuperation_v14.zip") }}
  if(busy)LinearProgressIndicator(Modifier.fillMaxWidth())
