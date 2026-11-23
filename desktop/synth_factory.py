@@ -8,6 +8,7 @@ import winsound
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+from portable_synth import from_windows, to_windows, export_zip, import_zip
 
 BG, PANEL, STEEL, RED, TEXT, MUTED = '#100f10', '#211d1a', '#887766', '#ff493e', '#e9dac2', '#b9a99b'
 RATE = 44100
@@ -81,7 +82,7 @@ def save_wav(path, pcm, rate=RATE):
 class SynthFactory(tk.Toplevel):
     def __init__(self, owner, data_dir, btn, panel, text):
         super().__init__(owner)
-        self.title('mokteK // SYNTH FACTORY • Windows V5')
+        self.title('mokteK // SYNTH FACTORY • Windows V15')
         self.geometry('1040x760')
         self.minsize(780,610)
         self.configure(bg=BG)
@@ -127,6 +128,10 @@ class SynthFactory(tk.Toplevel):
         commands=tk.Frame(actions,bg=PANEL);commands.pack(fill='x')
         for label,callback in [('GÉNÉRER',self.render),('▶ ÉCOUTER',self.preview),('■ STOP',self.stop),('EXPORT WAV',self.export)]:
             self.btn(commands,label,callback).pack(side='left',expand=True,fill='x',padx=4)
+        exchange=tk.Frame(self,bg=PANEL,padx=12,pady=6)
+        exchange.pack(fill='x')
+        self.btn(exchange,'⇄ EXPORTER PRESET POUR ANDROID (ZIP)',self.export_portable).pack(side='left',expand=True,fill='x',padx=3)
+        self.btn(exchange,'⇄ IMPORTER PRESET ANDROID (ZIP)',self.import_portable).pack(side='left',expand=True,fill='x',padx=3)
         tk.Label(self,textvariable=self.message,bg=BG,fg=MUTED,anchor='w',padx=12,pady=9).pack(fill='x')
         self.protocol('WM_DELETE_WINDOW',self.close)
         self.load_preset()
@@ -184,6 +189,31 @@ class SynthFactory(tk.Toplevel):
             try:self.preview_file.unlink(missing_ok=True)
             except OSError:pass
             self.preview_file=None
+
+    def export_portable(self):
+        dest=filedialog.asksaveasfilename(parent=self,defaultextension='.zip',initialfile='moktek_synth_preset_v15.zip',filetypes=[('Preset ZIP','*.zip')])
+        if not dest:return
+        try:
+            preset=from_windows(self.preset.get() or 'Preset Windows',self.kind.get(),self.frequency.get(),self.duration.get(),self.volume.get(),self.drive.get(),self.color.get())
+            export_zip(dest,preset)
+            self.message.set('Preset exporté en ZIP avec SHA-256. Les moteurs Android peuvent sonner différemment.')
+        except Exception as exc:messagebox.showerror('Export impossible',str(exc),parent=self)
+
+    def import_portable(self):
+        source=filedialog.askopenfilename(parent=self,filetypes=[('Preset ZIP','*.zip')])
+        if not source:return
+        try:
+            preset=import_zip(source)
+            kind,frequency,duration,volume,drive,color=to_windows(preset)
+            if not messagebox.askyesno('Conversion du preset',f"Preset : {preset['name']}\nSource : {preset['origin']}\nMoteur : {preset['kind']} → {kind}\nLes moteurs de synthèse ne sont pas identiques. Charger ces réglages ?",parent=self):return
+            self.stop()
+            self.kind.set(kind);self.frequency.set(frequency);self.duration.set(duration)
+            self.volume.set(volume);self.drive.set(drive);self.color.set(color)
+            PRESETS[preset['name']]=(kind,frequency,duration,volume,drive,color)
+            self.preset.set(preset['name'])
+            self.render()
+            self.message.set('Preset V15 chargé (conversion des paramètres, audio non identique).')
+        except Exception as exc:messagebox.showerror('Import impossible',str(exc),parent=self)
 
     def export(self):
         if not self.pcm:self.render()
