@@ -18,7 +18,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk, filedialog, messagebox
 
-VERSION = "6.0"
+VERSION = "7.0"
 BG, PANEL, STEEL, RED, TEXT, MUTED = "#100f10", "#211d1a", "#887766", "#ff493e", "#e9dac2", "#b9a99b"
 DARK_RED, GLOW, RACK, GRID = "#381315", "#ff8272", "#332b25", "#702126"
 DATA_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "mokteK-Kaoss-Studio"
