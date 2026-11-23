@@ -10,6 +10,7 @@ import math
 import winsound
 from librarian import SampleLibrarian
 from project_exchange import export_exchange, import_exchange
+from common_project_v16 import export_project, inspect_project
 from synth_factory import SynthFactory
 from sequencer_ui import TribeSequencer
 from korg_connection import KorgConnectionCenter
@@ -20,7 +21,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk, filedialog, messagebox
 
-VERSION = "14.0"
+VERSION = "16.0"
 BG, PANEL, STEEL, RED, TEXT, MUTED = "#100f10", "#211d1a", "#887766", "#ff493e", "#e9dac2", "#b9a99b"
 DARK_RED, GLOW, RACK, GRID = "#381315", "#ff8272", "#332b25", "#702126"
 DATA_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "mokteK-Kaoss-Studio"
@@ -122,6 +123,7 @@ class Studio(tk.Tk):
         self.btn(left, "▦ TRIBE SEQUENCER", self.open_sequencer).pack(fill="x", pady=(7, 0))
         self.btn(left, "◉ KORG CONNECTION", self.open_korg_center).pack(fill="x", pady=(7, 0))
         self.btn(left, "⇄ ÉCHANGES ANDROID / PC", self.open_exchange).pack(fill="x", pady=(7, 0))
+        self.btn(left, "▣ PROJET COMMUN V16", self.open_common_project).pack(fill="x", pady=(7, 0))
 
         center = self.panel(body, "◉  TOUCH PAD   •   LIVE CONTROL")
         center.grid(row=0, column=1, sticky="nsew", padx=5)
@@ -442,6 +444,45 @@ class Studio(tk.Tk):
         self.btn(body,"EXPORTER POUR ANDROID • ZIP V14",export).pack(fill="x",pady=8)
         self.btn(body,"IMPORTER DEPUIS ANDROID • ZIP",importer).pack(fill="x",pady=8)
         self.text(body,"Pattern converti : disponible dans exchange_inbox, puis OUVRIR PATTERN dans Tribe Sequencer. Sons/swing/rolls Android non pris en charge.",9,MUTED).pack(anchor="w",pady=6)
+
+    def open_common_project(self):
+        win=tk.Toplevel(self)
+        win.title("mokteK • Projet commun Windows / Android V16")
+        win.geometry("740x440")
+        win.configure(bg=BG)
+        body=self.panel(win,"PROJET COMMUN V16  •  ARCHIVE SÉCURISÉE")
+        body.pack(fill="both",expand=True,padx=16,pady=15)
+        self.text(body,"Un ZIP regroupe les WAV, un pattern, un preset et les informations du morceau.",10,MUTED).pack(anchor="w",pady=6)
+        self.text(body,"Import sans écrasement • les réglages Windows avancés restent conservés dans les JSON.",10,MUTED).pack(anchor="w",pady=6)
+        title=tk.StringVar(value="Mon projet mokteK")
+        tk.Entry(body,textvariable=title,bg="#1b1515",fg=TEXT,insertbackground=TEXT).pack(fill="x",pady=8)
+        def pick(label):
+            if messagebox.askyesno(label,"Ajouter un fichier JSON "+label+" au projet ?",parent=win):
+                return filedialog.askopenfilename(parent=win,filetypes=[("Preset ZIP / JSON","*.zip *.json")] if "Synth Factory" in label else [("JSON","*.json")])
+            return None
+        def export():
+            dest=filedialog.asksaveasfilename(parent=win,defaultextension=".zip",initialfile="moktek_projet_v16.zip",filetypes=[("ZIP","*.zip")])
+            if not dest:return
+            try:
+                session=pick("session Windows")
+                pattern=pick("pattern Windows")
+                synth=pick("preset portable Synth Factory V15 (ZIP ou JSON)")
+                report=export_project(DATA_DIR,dest,title.get(),session=session,pattern=pattern,synth=synth)
+                messagebox.showinfo("Projet exporté",f"{report['samples']} WAV inclus. Pattern : {report['pattern']}. Preset : {report['synth']}.\nAucun envoi au Korg.",parent=win)
+            except Exception as exc:messagebox.showerror("Export impossible",str(exc),parent=win)
+        def importer():
+            src=filedialog.askopenfilename(parent=win,filetypes=[("ZIP","*.zip")])
+            if not src:return
+            try:
+                info=inspect_project(src)
+                preview=f"{info['title']} ({info['origin']})\nWAV : {info['samples']} • Pattern : {info['pattern']} • Preset : {info['synth']}\nImporter les WAV dans les emplacements libres et conserver les JSON en boîte de réception ?"
+                if not messagebox.askyesno("Prévisualisation V16",preview,parent=win):return
+                result=import_exchange(DATA_DIR,src)
+                messagebox.showinfo("Import terminé",f"{result['samples']} WAV ajoutés et {result['preserved']} documents conservés dans exchange_inbox.\nLes patterns doivent être ouverts manuellement. Aucun écrasement.",parent=win)
+            except Exception as exc:messagebox.showerror("Projet non importé",str(exc),parent=win)
+        self.btn(body,"EXPORTER PROJET WINDOWS → ANDROID (ZIP V16)",export).pack(fill="x",pady=10)
+        self.btn(body,"IMPORTER PROJET ANDROID → WINDOWS (ZIP V16)",importer).pack(fill="x",pady=6)
+        self.text(body,"Le format commun n'est pas une sauvegarde de mémoire Korg et ne lance aucun transfert matériel.",9,MUTED).pack(anchor="w",pady=8)
 
     def open_sample_studio(self):
         """Local 16-bit PCM WAV editor; never sends proprietary data to hardware."""

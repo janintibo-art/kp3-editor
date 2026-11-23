@@ -232,6 +232,7 @@ internal class KorgFileStore(private val context: Context) {
  if(busy)LinearProgressIndicator(Modifier.fillMaxWidth())
  Text(message,color=bone,fontSize=12.sp)
  PortableSynthPanelV15()
+ CommonProjectPanelV16()
  Text("V16 : une sauvegarde locale vérifiée par empreintes SHA-256, compatible avec les sauvegardes V14. Aucune opération d'écriture sur KP3/KP3+.",color=bone,fontSize=11.sp)
  Text("Avant toute restauration, une copie de sécurité est créée dans les fichiers privés de l'application. Fermer et rouvrir l'application après restauration.",color=bone,fontSize=11.sp)
  if(confirmation)AlertDialog(onDismissRequest={confirmation=false;backupToRestore=null},title={Text("REMPLACER LES DONNÉES LOCALES ?")},text={Text("Les sessions et réglages actuels seront remplacés. Une copie de secours locale est créée avant restauration. AUCUNE donnée du KP3 physique ne sera modifiée.")},confirmButton={TextButton(onClick={val data=backupToRestore;backupToRestore=null;confirmation=false;if(data!=null)runTask{withContext(Dispatchers.IO){store.restoreBackup(data)};refs=store.references();message="Restauration terminée. Redémarrer l'application."}}){Text("RESTAURER")}},dismissButton={TextButton(onClick={confirmation=false;backupToRestore=null}){Text("ANNULER")}})
