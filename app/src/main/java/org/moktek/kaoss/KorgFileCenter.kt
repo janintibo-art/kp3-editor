@@ -182,6 +182,15 @@ internal class KorgFileStore(private val context: Context) {
  val originalExport=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")){uri->val name=selected;if(uri!=null&&name.isNotBlank())runTask{withContext(Dispatchers.IO){val bytes=store.readReference(name);ctx.contentResolver.openOutputStream(uri,"wt")?.use{it.write(bytes)}?:error("Écriture impossible")};message="Copie identique exportée : $name"}}
  val filePicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()){uri->if(uri!=null)runTask{val ref=withContext(Dispatchers.IO){store.addReference(uri)};refs=withContext(Dispatchers.IO){store.references()};selected=ref.name;message="Fichier conservé sans modification : ${ref.name}"}}
  val restorePicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()){uri->if(uri!=null)runTask{val data=withContext(Dispatchers.IO){ctx.contentResolver.openInputStream(uri)?.use { inp -> val out=ByteArrayOutputStream();val buffer=ByteArray(8192);while(true){val n=inp.read(buffer);if(n<0)break;require(out.size()+n<=200*1048576){"ZIP trop volumineux"};out.write(buffer,0,n)};out.toByteArray() }?:error("Archive inaccessible")};message=withContext(Dispatchers.IO){store.describeBackup(data)};backupToRestore=data;confirmation=true}}
+ val exchangePicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()){uri->if(uri!=null)runTask{
+  val data=withContext(Dispatchers.IO){ctx.contentResolver.openInputStream(uri)?.use { input ->
+   val result=ByteArrayOutputStream();val buffer=ByteArray(8192)
+   while(true){val n=input.read(buffer);if(n<0)break;require(result.size().toLong()+n<=192L*1048576){"ZIP trop volumineux"};result.write(buffer,0,n)}
+   result.toByteArray()
+  }?:error("Fichier inaccessible")}
+  message=withContext(Dispatchers.IO){ProjectExchangeV13.importArchive(ctx,data)}
+  refs=withContext(Dispatchers.IO){store.references()}
+ }}
  @Composable fun Control(label:String, action:()->Unit){Box(Modifier.fillMaxWidth().heightIn(min=46.dp).border(1.dp,steel,RoundedCornerShape(5.dp)).background(Color(0xff34251e)).clickable(enabled=!busy,onClick=action).padding(12.dp),contentAlignment=Alignment.Center){Text(label,color=bone,fontWeight=FontWeight.Bold,fontSize=12.sp)}}
  Text("KORG FILE CENTER",color=red,fontSize=22.sp,fontWeight=FontWeight.Bold)
  Text("KP3 / KP3+ • fichiers et sauvegardes",color=bone,fontSize=12.sp)
@@ -201,6 +210,7 @@ internal class KorgFileStore(private val context: Context) {
  Text("INVENTAIRE AVANT SAUVEGARDE",color=red,fontSize=13.sp,fontWeight=FontWeight.Bold)
  Text(store.backupAudit(),color=bone,fontSize=12.sp)
  Control("EXPORTER MA SAUVEGARDE ZIP") {runTask {pending=withContext(Dispatchers.IO){store.createBackup().also{store.verifyBackup(it)}};message="Archive contrôlée : empreintes SHA-256 vérifiées";export.launch("moktek_backup_v16.zip")}}
+ Control("IMPORTER UN ÉCHANGE WINDOWS V13 (WAV)") {exchangePicker.launch(arrayOf("application/zip","application/octet-stream"))}
  Control("IMPORTER / RESTAURER UNE SAUVEGARDE") {restorePicker.launch(arrayOf("application/zip","application/octet-stream"))}
  Control("EXPORTER LA COPIE DE SECOURS") {runTask { val saved=withContext(Dispatchers.IO){File(ctx.filesDir,"moktek_recovery_before_v14_restore.zip").takeIf{it.isFile}?.readBytes() ?: error("Aucune restauration précédente")};pending=saved;export.launch("moktek_recuperation_v14.zip") }}
  if(busy)LinearProgressIndicator(Modifier.fillMaxWidth())
