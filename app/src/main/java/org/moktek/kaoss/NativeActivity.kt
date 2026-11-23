@@ -137,10 +137,27 @@ open class NativeActivity : ComponentActivity() {
     }}
    }
    if(!stage){
-    val tabs=listOf("LIVE" to "LIVE","SEQ" to "SEQ","STUDIO" to "STUDIO","MOTION" to "MOTION","SESSIONS" to "SESSIONS","MIDI" to "MIDI / USB","TUTOS" to "TUTOS")
-    tabs.chunked(if(wide)6 else 3).forEach{group->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(4.dp)){group.forEach{(label,target)->CompactKey(label,Modifier.weight(1f),tab==target){tab=target}}}}
+    val tabs=listOf("LIVE" to "LIVE","SEQ" to "SEQ","STUDIO" to "STUDIO","OUTILS" to "OUTILS")
+    tabs.chunked(if(wide)4 else 2).forEach{group->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(4.dp)){group.forEach{(label,target)->CompactKey(label,Modifier.weight(1f),tab==target){tab=target}}}}
    }
    when(tab){
+    "OUTILS" -> {
+     Text("OUTILS / NAVIGATION",color=Red,fontSize=22.sp,fontWeight=FontWeight.Bold)
+     Text("Choisis un espace. Le LIVE et la création restent accessibles en haut.",color=Bone,fontSize=12.sp)
+     Rack("CONNEXION & MOUVEMENT") {
+      CompactKey("MIDI / USB / KORG",Modifier.fillMaxWidth()){tab="MIDI / USB"}
+      CompactKey("XY MOTION",Modifier.fillMaxWidth()){tab="MOTION"}
+     }
+     Rack("FICHIERS & PROJETS") {
+      CompactKey("SESSIONS",Modifier.fillMaxWidth()){tab="SESSIONS"}
+      CompactKey("FICHIERS / SAUVEGARDES",Modifier.fillMaxWidth()){tab="FICHIERS"}
+      CompactKey("MÉMOIRES DE PROGRAMMES",Modifier.fillMaxWidth()){memoryModel=model;tab="PROGRAMMES"}
+     }
+     Rack("APPRENDRE") {
+      CompactKey("TUTOS / AIDE",Modifier.fillMaxWidth()){tab="TUTOS"}
+     }
+    }
+    
     "TUTOS" -> {
      val guides=listOf(
       "DÉMARRAGE RAPIDE" to "Dans LIVE, déplace le doigt sur le pad XY. Sans Korg connecté, la simulation ne produit pas de son. Ouvre SEQ pour créer un rythme et STUDIO pour travailler sur les sons.",

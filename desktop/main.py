@@ -23,7 +23,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk, filedialog, messagebox
 
-VERSION = "19.0"
+VERSION = "20.0"
 BG, PANEL, STEEL, RED, TEXT, MUTED = "#100f10", "#211d1a", "#887766", "#ff493e", "#e9dac2", "#b9a99b"
 DARK_RED, GLOW, RACK, GRID = "#381315", "#ff8272", "#332b25", "#702126"
 DATA_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "mokteK-Kaoss-Studio"
@@ -36,8 +36,8 @@ class Studio(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(f"mokteK • KAOSS STUDIO Windows V{VERSION}")
-        self.geometry("1240x790")
-        self.minsize(950, 640)
+        self.geometry("1350x820")
+        self.minsize(1040, 690)
         self.configure(bg=BG)
         self.port = None
         self.recording = False
@@ -96,9 +96,9 @@ class Studio(tk.Tk):
 
         body = tk.Frame(self, bg=BG, padx=12, pady=10)
         body.pack(fill="both", expand=True)
-        body.grid_columnconfigure(0, weight=1, minsize=200)
-        body.grid_columnconfigure(1, weight=4, minsize=420)
-        body.grid_columnconfigure(2, weight=1, minsize=200)
+        body.grid_columnconfigure(0, weight=1, minsize=240)
+        body.grid_columnconfigure(1, weight=5, minsize=440)
+        body.grid_columnconfigure(2, weight=1, minsize=220)
         body.grid_rowconfigure(0, weight=1)
         left = self.panel(body, "APPAREIL / PROGRAMME")
         left.grid(row=0, column=0, sticky="nsew", padx=5)
@@ -117,17 +117,50 @@ class Studio(tk.Tk):
         self.btn(line, "−", lambda: self.bpm.set(max(40, self.bpm.get()-1))).pack(side="left", expand=True, fill="x")
         self.btn(line, "+", lambda: self.bpm.set(min(300, self.bpm.get()+1))).pack(side="left", expand=True, fill="x")
         self.btn(left, "TAP TEMPO", self.tap).pack(fill="x", pady=(8, 0))
-        self.btn(left, "SAUVER SESSION", self.save_session).pack(fill="x", pady=(28, 4))
-        self.btn(left, "OUVRIR SESSION", self.open_session).pack(fill="x")
-        self.btn(left, "🎵 SAMPLE STUDIO", self.open_sample_studio).pack(fill="x", pady=(18, 0))
-        self.btn(left, "▦ SAMPLE LIBRARIAN", self.open_librarian).pack(fill="x", pady=(7, 0))
-        self.btn(left, "♫ SYNTH FACTORY", self.open_synth_factory).pack(fill="x", pady=(7, 0))
-        self.btn(left, "▦ TRIBE SEQUENCER", self.open_sequencer).pack(fill="x", pady=(7, 0))
-        self.btn(left, "◉ KORG CONNECTION", self.open_korg_center).pack(fill="x", pady=(7, 0))
-        self.btn(left, "⇄ ÉCHANGES ANDROID / PC", self.open_exchange).pack(fill="x", pady=(7, 0))
-        self.btn(left, "▣ PROJET COMMUN V16", self.open_common_project).pack(fill="x", pady=(7, 0))
-        self.btn(left, "▣ MES PROJETS V17", self.open_project_library).pack(fill="x", pady=(7, 0))
-        self.btn(left, "? TUTOS / AIDE", lambda: Tutorials(self)).pack(fill="x", pady=(7, 0))
+        self.text(left, "ESPACE DE TRAVAIL", 10, MUTED, True).pack(anchor="w", pady=(18, 4))
+        nav = tk.Frame(left, bg=PANEL)
+        nav.pack(fill="both", expand=True)
+        # Les catégories occupent un seul emplacement, sans empiler 12 gros boutons.
+        categories = {
+            "CRÉER": [
+                ("SAMPLE STUDIO", self.open_sample_studio),
+                ("SAMPLE LIBRARIAN", self.open_librarian),
+                ("SYNTH FACTORY", self.open_synth_factory),
+                ("TRIBE SEQUENCER", self.open_sequencer)],
+            "KORG": [
+                ("KORG CONNECTION", self.open_korg_center),
+                ("PROFILS / TESTS MIDI", self.open_korg_center)],
+            "PROJETS": [
+                ("MES PROJETS", self.open_project_library),
+                ("PROJET COMMUN", self.open_common_project),
+                ("ÉCHANGES ANDROID / PC", self.open_exchange),
+                ("SAUVER SESSION LIVE", self.save_session),
+                ("OUVRIR SESSION LIVE", self.open_session)],
+            "AIDE": [("TUTOS / AIDE", lambda: Tutorials(self))]
+        }
+        tabs = tk.Frame(nav, bg=PANEL)
+        tabs.pack(fill="x", pady=(0, 8))
+        self.tool_area = tk.Frame(nav, bg=PANEL)
+        self.tool_area.pack(fill="both", expand=True)
+        self.nav_buttons = {}
+        self.nav_category = None
+        def show_tools(category):
+            for widget in self.tool_area.winfo_children(): widget.destroy()
+            self.nav_category = category
+            for name, button in self.nav_buttons.items():
+                button.configure(bg="#75201c" if name == category else "#392a28")
+            for title, action in categories[category]:
+                self.btn(self.tool_area, title, action).pack(fill="x", pady=3)
+        for category in categories:
+            button = self.btn(tabs, category, lambda name=category: show_tools(name))
+            button.configure(font=("Segoe UI", 8, "bold"), padx=2, pady=8)
+            button.pack(side="left", fill="x", expand=True, padx=1)
+            self.nav_buttons[category] = button
+        show_tools("CRÉER")
+        self.bind_all("<Control-1>", lambda e: show_tools("CRÉER"))
+        self.bind_all("<Control-2>", lambda e: show_tools("KORG"))
+        self.bind_all("<Control-3>", lambda e: show_tools("PROJETS"))
+        self.bind_all("<F1>", lambda e: show_tools("AIDE"))
 
         center = self.panel(body, "◉  TOUCH PAD   •   LIVE CONTROL")
         center.grid(row=0, column=1, sticky="nsew", padx=5)
@@ -185,7 +218,7 @@ class Studio(tk.Tk):
         footer = tk.Frame(self, bg=BG, padx=18, pady=8)
         footer.pack(fill="x")
         tk.Label(footer, textvariable=self.message, bg=BG, fg=MUTED, anchor="w").pack(fill="x")
-        self.text(footer, "mokteK  /  KAOSS STUDIO  •  Windows  •  MIDI EXPÉRIMENTAL  •  non affilié à Korg", 9, STEEL).pack(anchor="e")
+        self.text(footer, "Ctrl+1 Créer  •  Ctrl+2 Korg  •  Ctrl+3 Projets  •  F1 Aide  |  MIDI expérimental  •  non affilié à Korg", 9, STEEL).pack(anchor="e")
 
     def send(self, typ, **data):
         if self.port is None or mido is None:
