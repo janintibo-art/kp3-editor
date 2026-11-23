@@ -9,6 +9,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from synth_factory import generate, PRESETS, save_wav
 from sequencer_engine import TRACKS, DEFAULT_SOUNDS, default_pattern, render, export_wav
+from sample_bridge_v23 import store_pcm, available_sounds
 
 BG='#100f10'; PANEL='#211d1a'; RED='#ff493e'; TEXT='#e9dac2'; MUTED='#b9a99b'; STEEL='#887766'
 
@@ -24,6 +25,8 @@ class Workbench(tk.Frame):
         self.sample_rate=44100
         self.sample_selection=(0,1)
         self.seq_pattern=default_pattern('TRIBE',16)
+        self.seq_sounds=list(DEFAULT_SOUNDS)
+        self.target_lane=tk.StringVar(value=TRACKS[0])
         self.seq_bpm=tk.IntVar(value=174)
         self.seq_style=tk.StringVar(value='TRIBE')
         self.synth_preset=tk.StringVar(value='TRIBE KICK')
@@ -67,6 +70,7 @@ class Workbench(tk.Frame):
         self.button(row,'▶ ÉCOUTER',self.preview_sample)
         self.button(row,'■ STOP',self.stop_audio)
         self.button(row,'EXPORTER SÉLECTION',self.export_sample)
+        self.button(row,'→ BANQUE + SEQ',self.send_sample_to_seq)
         self.sample_info=tk.StringVar(value='WAV PCM 16 bits mono • importer un fichier pour commencer')
         self.label(self.content,'Déplacer la souris sur la forme d’onde pour sélectionner un passage.').pack(anchor='w',pady=6)
         self.sample_canvas=tk.Canvas(self.content,bg='#19090c',highlightbackground=RED,highlightthickness=2,height=260,cursor='crosshair')
@@ -144,6 +148,25 @@ class Workbench(tk.Frame):
             if target:save_wav(target,pcm,self.sample_rate);self.state.set('Sample exporté : '+Path(target).name)
         except Exception as exc:messagebox.showerror('Export',str(exc),parent=self)
 
+    def send_sample_to_seq(self):
+        try:
+            sound=store_pcm(self.data_dir,self.selection_pcm(),self.sample_rate,
+                            self.sample_path.stem if self.sample_path else 'Extrait WAV')
+            self.assign_sound(sound)
+        except Exception as exc:messagebox.showerror('Bibliothèque',str(exc),parent=self)
+
+    def assign_sound(self,sound):
+        lane=TRACKS.index(self.target_lane.get())
+        self.seq_sounds[lane]=sound
+        self.state.set(f'{sound} affecté à {TRACKS[lane]} • nouveau sample ajouté à une banque libre')
+        self.show('seq')
+
+    def send_synth_to_seq(self):
+        try:
+            sound=store_pcm(self.data_dir,self.synth_pcm(),44100,self.synth_preset.get())
+            self.assign_sound(sound)
+        except Exception as exc:messagebox.showerror('Bibliothèque',str(exc),parent=self)
+
     def build_synth(self):
         row=tk.Frame(self.content,bg=PANEL);row.pack(fill='x',pady=5)
         self.label(row,'PRESET').pack(side='left',padx=4)
@@ -160,6 +183,7 @@ class Workbench(tk.Frame):
         self.button(row,'▶ PRÉÉCOUTE',self.preview_synth)
         self.button(row,'■ STOP',self.stop_audio)
         self.button(row,'EXPORT WAV',self.export_synth)
+        self.button(row,'→ BANQUE + SEQ',self.send_synth_to_seq)
         self.load_preset()
         self.label(self.content,'Moteur audio local • le rendu peut différer de celui d’Android.').pack(anchor='w')
 
@@ -188,23 +212,43 @@ class Workbench(tk.Frame):
         tk.Spinbox(row,from_=40,to=300,textvariable=self.seq_bpm,width=5,bg=BG,fg=TEXT).pack(side='left')
         self.button(row,'▶ LIRE',self.preview_sequence)
         self.button(row,'■ STOP',self.stop_audio)
+        library_row=tk.Frame(self.content,bg=PANEL);library_row.pack(fill='x',pady=5)
+        self.label(library_row,'DESTINATION').pack(side='left',padx=4)
+        ttk.Combobox(library_row,textvariable=self.target_lane,values=TRACKS,state='readonly',width=10).pack(side='left',padx=4)
+        self.button(library_row,'ACTUALISER BANQUES',self.refresh_sequencer)
+        self.label(library_row,'Choisir un son par piste : presets ou banques A–D').pack(side='left',padx=8)
         grid=tk.Frame(self.content,bg=PANEL);grid.pack(fill='both',expand=True)
         self.seq_buttons=[]
         for lane,name in enumerate(TRACKS):
-            self.label(grid,name).grid(row=lane,column=0,sticky='w',padx=(0,10),pady=5)
+            self.label(grid,name).grid(row=lane,column=0,sticky='w',padx=(0,4),pady=5)
+            choices=available_sounds(self.data_dir)
+            if self.seq_sounds[lane] not in choices:self.seq_sounds[lane]=DEFAULT_SOUNDS[lane]
+            selected=tk.StringVar(value=self.seq_sounds[lane])
+            selector=ttk.Combobox(grid,textvariable=selected,values=choices,state='readonly',width=16)
+            selector.grid(row=lane,column=1,padx=3,sticky='ew')
+            selector.bind('<<ComboboxSelected>>',lambda _e,lane=lane,selected=selected:self.set_track_sound(lane,selected.get()))
             buttons=[]
             for step in range(16):
                 b=tk.Button(grid,text='●' if self.seq_pattern[lane][step] else '·',width=2,bg=RED if self.seq_pattern[lane][step] else '#34251e',fg=TEXT,
                             activebackground='#ff8272',relief='flat',command=lambda lane=lane,step=step:self.toggle_seq(lane,step))
-                b.grid(row=lane,column=step+1,sticky='nsew',padx=1,pady=4)
+                b.grid(row=lane,column=step+2,sticky='nsew',padx=1,pady=4)
                 buttons.append(b)
             self.seq_buttons.append(buttons)
-        for col in range(1,17):grid.grid_columnconfigure(col,weight=1)
+        for col in range(2,18):grid.grid_columnconfigure(col,weight=1)
         row=tk.Frame(self.content,bg=PANEL);row.pack(fill='x',pady=8)
         self.button(row,'ENREGISTRER PATTERN',self.save_sequence)
         self.button(row,'OUVRIR PATTERN',self.load_sequence)
         self.button(row,'EXPORT WAV',self.export_sequence)
-        self.label(self.content,'Éditeur intégré 16 pas • pour 32/64 pas, vélocité, swing et FX : éditeur avancé.').pack(anchor='w')
+        self.label(self.content,'V23 : banques A–D par piste • 16 pas intégrés. Éditeur avancé pour 32/64 pas, swing et FX.').pack(anchor='w')
+    def set_track_sound(self,lane,name):
+        if name in available_sounds(self.data_dir):
+            self.seq_sounds[lane]=name
+            self.state.set(f'Piste {TRACKS[lane]} : {name}')
+
+    def refresh_sequencer(self):
+        self.build_seq_again()
+        self.state.set('Banques actualisées • 32 emplacements possibles')
+
     def toggle_seq(self,lane,step):
         active=not self.seq_pattern[lane][step];self.seq_pattern[lane][step]=active
         self.seq_buttons[lane][step].configure(bg=RED if active else '#34251e',text='●' if active else '·')
@@ -215,7 +259,7 @@ class Workbench(tk.Frame):
         for child in self.content.winfo_children():child.destroy()
         self.build_sequencer()
     def seq_audio(self):
-        return render(self.seq_pattern,int(self.seq_bpm.get()),16,DEFAULT_SOUNDS,[.8]*6,1)
+        return render(self.seq_pattern,int(self.seq_bpm.get()),16,self.seq_sounds,[.8]*6,1,data_dir=self.data_dir)
     def preview_sequence(self):
         try:
             pcm=self.seq_audio();path=self.data_dir/'preview_seq_v22.wav';path.parent.mkdir(parents=True,exist_ok=True)
@@ -227,7 +271,7 @@ class Workbench(tk.Frame):
             if path:export_wav(path,pcm);self.state.set('Pattern WAV exporté : '+Path(path).name)
         except Exception as exc:messagebox.showerror('Séquenceur',str(exc),parent=self)
     def save_sequence(self):
-        doc={'format':'moktek-sequencer-v22-integrated','version':1,'steps':16,'bpm':int(self.seq_bpm.get()),'pattern':self.seq_pattern}
+        doc={'format':'moktek-sequencer-v22-integrated','version':1,'steps':16,'bpm':int(self.seq_bpm.get()),'pattern':self.seq_pattern,'sounds':self.seq_sounds}
         path=filedialog.asksaveasfilename(parent=self,defaultextension='.json',filetypes=[('Pattern intégré','*.json')])
         if path:Path(path).write_text(json.dumps(doc,indent=2),encoding='utf-8');self.state.set('Pattern enregistré : '+Path(path).name)
     def load_sequence(self):
@@ -240,6 +284,11 @@ class Workbench(tk.Frame):
             if doc.get('format')!='moktek-sequencer-v22-integrated' or doc.get('steps')!=16 or type(p)!=list or len(p)!=6 or any(type(row)!=list or len(row)!=16 or any(type(n)!=bool for n in row) for row in p):raise ValueError('Pattern non compatible')
             bpm=doc.get('bpm')
             if type(bpm)!=int or not 40<=bpm<=300:raise ValueError('BPM invalide')
+            sounds=doc.get('sounds',list(DEFAULT_SOUNDS))
+            if (not isinstance(sounds,list) or len(sounds)!=6 or
+                    any(not isinstance(n,str) or len(n)>100 for n in sounds)):
+                raise ValueError('Affectations sonores invalides')
+            self.seq_sounds=sounds
             self.seq_bpm.set(bpm);self.seq_pattern=p;self.build_seq_again()
             self.state.set('Pattern chargé : '+Path(path).name)
         except (OSError,ValueError,TypeError) as exc:messagebox.showerror('Pattern',str(exc),parent=self)
