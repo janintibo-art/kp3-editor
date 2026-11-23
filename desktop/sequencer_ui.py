@@ -6,14 +6,15 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from arranger_ui import SongArranger
+from mixer_fx_v18 import apply_fx, validate_fx
 from sequencer_engine import TRACKS, SOUNDS, DEFAULT_SOUNDS, default_pattern, render, export_wav, librarian_choices, default_step_settings, validate_step_settings, render_chain
 BG='#100f10';PANEL='#211d1a';RED='#ff493e';STEEL='#887766';TEXT='#e9dac2';MUTED='#b9a99b'
 
 class TribeSequencer(tk.Toplevel):
     def __init__(self, parent, data_dir):
         super().__init__(parent)
-        self.title('mokteK // TRIBE SEQUENCER • Windows V9')
-        self.geometry('1240x690');self.minsize(880,510);self.configure(bg=BG)
+        self.title('mokteK // TRIBE SEQUENCER • Windows V18')
+        self.geometry('1280x760');self.minsize(880,510);self.configure(bg=BG)
         self.data_dir=Path(data_dir);self.preview_path=None
         self.steps=tk.IntVar(value=16);self.bpm=tk.IntVar(value=174)
         self.repeat=tk.IntVar(value=2)
@@ -23,6 +24,11 @@ class TribeSequencer(tk.Toplevel):
         self.mutes=[tk.BooleanVar(value=False) for _ in TRACKS]
         self.solos=[tk.BooleanVar(value=False) for _ in TRACKS]
         self.swing=tk.IntVar(value=0)
+        self.fx_gain=tk.DoubleVar(value=1.0)
+        self.fx_drive=tk.DoubleVar(value=0.0)
+        self.fx_echo=tk.DoubleVar(value=0.0)
+        self.fx_cutoff=tk.IntVar(value=20000)
+        self.fx_enabled=tk.BooleanVar(value=False)
         self.extra_sounds={}
         self.refresh_librarian_choices()
         self.pattern=default_pattern('TRIBE',16)
@@ -34,7 +40,7 @@ class TribeSequencer(tk.Toplevel):
         self.buttons=[]
         top=tk.Frame(self,bg='#332b25',padx=14,pady=12);top.pack(fill='x')
         tk.Label(top,text='TRIBE SEQUENCER  //  6 TRACKS',bg='#332b25',fg=RED,font=('Segoe UI',19,'bold')).pack(side='left')
-        tk.Label(top,text='V9  •  16 / 32 / 64 STEPS',bg='#332b25',fg=MUTED,font=('Segoe UI',10,'bold')).pack(side='right')
+        tk.Label(top,text='V18  •  MIXER + FX',bg='#332b25',fg=MUTED,font=('Segoe UI',10,'bold')).pack(side='right')
         tk.Frame(self,bg=RED,height=3).pack(fill='x')
         controls=tk.Frame(self,bg=PANEL,padx=12,pady=12);controls.pack(fill='x',padx=12,pady=(10,4))
         self.label(controls,'STYLE').pack(side='left')
@@ -61,6 +67,15 @@ class TribeSequencer(tk.Toplevel):
         self.button(chain,'▶ CHAÎNE',self.preview_chain).pack(side='left',padx=3)
         self.button(chain,'EXPORT CHAÎNE',self.export_chain).pack(side='left',padx=3)
         self.button(chain,'ARRANGEUR V9',self.open_arranger).pack(side='right',padx=3)
+        fxbar=tk.Frame(self,bg='#332b25',padx=10,pady=5);fxbar.pack(fill='x',padx=12,pady=(5,0))
+        tk.Checkbutton(fxbar,text='FX MASTER',variable=self.fx_enabled,bg='#332b25',fg=RED,
+                       selectcolor=BG,activebackground='#332b25').pack(side='left',padx=4)
+        for title,var,hi,res in [('GAIN',self.fx_gain,2.0,.05),('DRIVE',self.fx_drive,1.0,.05),('ECHO',self.fx_echo,1.0,.05),('FILTRE Hz',self.fx_cutoff,20000,100)]:
+            tk.Label(fxbar,text=title,bg='#332b25',fg=TEXT,font=('Segoe UI',9,'bold')).pack(side='left',padx=(12,3))
+            tk.Scale(fxbar,variable=var,from_=100 if title=='FILTRE Hz' else 0,to=hi,resolution=res,
+                     orient='horizontal',length=100 if title=='FILTRE Hz' else 80,bg='#332b25',fg=TEXT,
+                     troughcolor='#54211e',highlightthickness=0,showvalue=True).pack(side='left')
+        self.button(fxbar,'RESET FX',self.reset_fx).pack(side='right',padx=5)
         grid_box=tk.Frame(self,bg=PANEL,padx=8,pady=10);grid_box.pack(fill='both',expand=True,padx=12,pady=7)
         tk.Label(grid_box,text='Clic = activer/désactiver  •  Clic droit = vélocité / probabilité / roulement  •  Défilement horizontal',bg=PANEL,fg=MUTED,anchor='w').pack(fill='x',pady=(0,7))
         container=tk.Frame(grid_box,bg=PANEL);container.pack(fill='both',expand=True)
@@ -141,13 +156,23 @@ class TribeSequencer(tk.Toplevel):
             raise ValueError('Chaîne : uniquement A, B, C, D (32 patterns maximum)')
         return order
 
+    def fx_settings(self):
+        return validate_fx({'gain':self.fx_gain.get(),'drive':self.fx_drive.get(),'echo':self.fx_echo.get(),'cutoff':self.fx_cutoff.get()})
+
+    def reset_fx(self):
+        self.fx_enabled.set(False);self.fx_gain.set(1.0);self.fx_drive.set(0);self.fx_echo.set(0);self.fx_cutoff.set(20000)
+
+    def master_fx(self, pcm):
+        return apply_fx(pcm,**self.fx_settings()) if self.fx_enabled.get() else pcm
+
     def chain_audio(self):
         bpm,steps,reps=self.inputs()
         patterns=dict(self.slots)
         patterns[self.slot.get()]=self.snapshot()
-        return render_chain(patterns,self.chain_order(),bpm,[v.get() for v in self.sounds],
+        pcm=render_chain(patterns,self.chain_order(),bpm,[v.get() for v in self.sounds],
                             [v.get() for v in self.volumes],[v.get() for v in self.mutes],
                             [v.get() for v in self.solos],self.swing.get(),self.data_dir)
+        return self.master_fx(pcm)
 
     def preview_chain(self):
         self.play_pcm(self.chain_audio,'Chaîne')
@@ -196,7 +221,8 @@ class TribeSequencer(tk.Toplevel):
     def audio(self):
         bpm,steps,reps=self.inputs()
         swing=self.swing.get()
-        return render(self.pattern,bpm,steps,[s.get() for s in self.sounds],[v.get() for v in self.volumes],bars=reps,mutes=[v.get() for v in self.mutes],solos=[v.get() for v in self.solos],swing=swing,data_dir=self.data_dir,step_settings=self.step_settings)
+        pcm=render(self.pattern,bpm,steps,[s.get() for s in self.sounds],[v.get() for v in self.volumes],bars=reps,mutes=[v.get() for v in self.mutes],solos=[v.get() for v in self.solos],swing=swing,data_dir=self.data_dir,step_settings=self.step_settings)
+        return self.master_fx(pcm)
     def stop(self):
         winsound.PlaySound(None,0)
         if self.preview_path is not None:
@@ -224,7 +250,7 @@ class TribeSequencer(tk.Toplevel):
         self.data_dir.mkdir(parents=True,exist_ok=True)
         path=filedialog.asksaveasfilename(parent=self,initialdir=str(self.data_dir),defaultextension='.json',initialfile='tribe-pattern.json',filetypes=[('Pattern mokteK','*.json')])
         if not path:return
-        payload={'format':'moktek-windows-sequencer-v3','steps':self.steps.get(),'bpm':self.bpm.get(),'loops':self.repeat.get(),'pattern':self.pattern,'sounds':[v.get() for v in self.sounds],'volumes':[v.get() for v in self.volumes],'mutes':[v.get() for v in self.mutes],'solos':[v.get() for v in self.solos],'swing':self.swing.get(),'step_settings':self.step_settings,'slots':self.slots,'order':self.order.get(),'slot':self.slot.get()}
+        payload={'format':'moktek-windows-sequencer-v3','steps':self.steps.get(),'bpm':self.bpm.get(),'loops':self.repeat.get(),'pattern':self.pattern,'sounds':[v.get() for v in self.sounds],'volumes':[v.get() for v in self.volumes],'mutes':[v.get() for v in self.mutes],'solos':[v.get() for v in self.solos],'swing':self.swing.get(),'step_settings':self.step_settings,'slots':self.slots,'order':self.order.get(),'slot':self.slot.get(),'fx_enabled':self.fx_enabled.get(),'master_fx':self.fx_settings()}
         try:Path(path).write_text(json.dumps(payload,ensure_ascii=False,indent=2),encoding='utf-8');self.status.set('Pattern sauvegardé')
         except Exception as exc:messagebox.showerror('Sauvegarde',str(exc),parent=self)
     def open_pattern(self):
@@ -246,7 +272,9 @@ class TribeSequencer(tk.Toplevel):
             for v in slots.values():validate_step_settings(v.get('step_settings'),v['steps'])
             order=data.get('order','A');slot=data.get('slot','A')
             if not isinstance(order,str) or not 1<=len(''.join(order.split()))<=32 or any(k not in 'ABCD' for k in ''.join(order.upper().split())) or slot not in 'ABCD':raise ValueError('Chaîne invalide')
-            self.stop();self.steps.set(steps);self.pattern=pattern;self.step_settings=settings;self.slots=slots;self.order.set(order);self.slot.set(slot);self.bpm.set(bpm);self.repeat.set(loops);self.swing.set(swing)
+            fx=validate_fx(data.get('master_fx',{}))
+            if type(data.get('fx_enabled',False))!=bool:raise ValueError('État FX invalide')
+            self.stop();self.fx_enabled.set(data.get('fx_enabled',False));self.fx_gain.set(fx['gain']);self.fx_drive.set(fx['drive']);self.fx_echo.set(fx['echo']);self.fx_cutoff.set(fx['cutoff']);self.steps.set(steps);self.pattern=pattern;self.step_settings=settings;self.slots=slots;self.order.set(order);self.slot.set(slot);self.bpm.set(bpm);self.repeat.set(loops);self.swing.set(swing)
             for var,val in zip(self.volumes,volumes):var.set(val)
             for var,val in zip(self.mutes,mutes):var.set(val)
             for var,val in zip(self.solos,solos):var.set(val)
