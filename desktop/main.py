@@ -137,6 +137,7 @@ class Studio(tk.Tk):
             "CRÉER": [
                 ("SAMPLE STUDIO", lambda: self.switch_workbench("sample")),
                 ("SAMPLE LIBRARIAN", self.open_librarian),
+                ("BIBLIOTHÈQUE VISUELLE V24", lambda: self.switch_workbench("library")),
                 ("SYNTH FACTORY", lambda: self.switch_workbench("synth")),
                 ("TRIBE SEQUENCER", lambda: self.switch_workbench("seq"))],
             "KORG": [
@@ -208,7 +209,7 @@ class Studio(tk.Tk):
         self.active_workbench = "live"
         self.workbench_tabs = tk.Frame(center, bg=PANEL)
         self.workbench_tabs.grid(row=4, column=0, sticky="ew", pady=(7,0))
-        for title, key in (("◉ LIVE", "live"), ("WAVE", "sample"), ("SYNTH", "synth"), ("SEQ", "seq")):
+        for title, key in (("◉ LIVE", "live"), ("WAVE", "sample"), ("SYNTH", "synth"), ("SEQ", "seq"), ("LIB", "library")):
             b=self.btn(self.workbench_tabs,title,lambda key=key:self.switch_workbench(key))
             b.configure(pady=5, font=("Segoe UI",9,"bold"))
             b.pack(side="left",expand=True,fill="x",padx=2)
@@ -819,7 +820,7 @@ class Studio(tk.Tk):
             self.active_workbench="live"
             self.message.set("LIVE • pad XY et contrôle MIDI expérimental")
             return
-        if tool not in ("sample","synth","seq"): return
+        if tool not in ("sample","synth","seq","library"): return
         for widget in self.live_widgets: widget.grid_remove()
         self.workbench.grid()
         self.workbench.show(tool)
@@ -827,7 +828,7 @@ class Studio(tk.Tk):
         self.message.set("ATELIER INTÉGRÉ • " + tool.upper() + " • traitement audio local")
 
     def open_advanced_tool(self,tool):
-        return {"sample":self.open_sample_studio,"synth":self.open_synth_factory,"seq":self.open_sequencer}[tool]()
+        return {"sample":self.open_sample_studio,"synth":self.open_synth_factory,"seq":self.open_sequencer,"library":self.open_librarian}[tool]()
 
     def open_librarian(self):
         if hasattr(self, "librarian_window") and self.librarian_window.winfo_exists():

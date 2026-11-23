@@ -10,6 +10,7 @@ from tkinter import filedialog, messagebox, ttk
 from synth_factory import generate, PRESETS, save_wav
 from sequencer_engine import TRACKS, DEFAULT_SOUNDS, default_pattern, render, export_wav
 from sample_bridge_v23 import store_pcm, available_sounds
+from library_panel_v24 import LibraryPanel
 
 BG='#100f10'; PANEL='#211d1a'; RED='#ff493e'; TEXT='#e9dac2'; MUTED='#b9a99b'; STEEL='#887766'
 
@@ -37,6 +38,7 @@ class Workbench(tk.Frame):
         self.synth_volume=tk.DoubleVar(value=.73)
         self.synth_kind='Kick'
         self.state=tk.StringVar(value='Atelier intégré • traitement local uniquement')
+        self.library_panel=None
         self.header=tk.Frame(self,bg=PANEL)
         self.header.pack(fill='x',pady=4)
         self.content=tk.Frame(self,bg=PANEL)
@@ -56,11 +58,14 @@ class Workbench(tk.Frame):
         winsound.PlaySound(None,winsound.SND_PURGE)
         for child in self.header.winfo_children():child.destroy()
         for child in self.content.winfo_children():child.destroy()
-        title={'sample':'SAMPLE STUDIO','synth':'SYNTH FACTORY','seq':'TRIBE SEQUENCER'}[tool]
+        title={'sample':'SAMPLE STUDIO','synth':'SYNTH FACTORY','seq':'TRIBE SEQUENCER','library':'BIBLIOTHÈQUE VISUELLE V24'}[tool]
         tk.Label(self.header,text=title,bg=PANEL,fg=RED,font=('Segoe UI',16,'bold')).pack(side='left')
         self.button(self.header,'ÉDITEUR AVANCÉ',lambda:self.open_full(tool)).pack_configure(side='right')
         if tool=='sample':self.build_sample()
         elif tool=='synth':self.build_synth()
+        elif tool=='library':
+            self.library_panel=LibraryPanel(self)
+            self.library_panel.build()
         else:self.build_sequencer()
         self.state.set('Atelier intégré : '+title+' • aucune écriture vers le KP3')
 
@@ -216,6 +221,7 @@ class Workbench(tk.Frame):
         self.label(library_row,'DESTINATION').pack(side='left',padx=4)
         ttk.Combobox(library_row,textvariable=self.target_lane,values=TRACKS,state='readonly',width=10).pack(side='left',padx=4)
         self.button(library_row,'ACTUALISER BANQUES',self.refresh_sequencer)
+        self.button(library_row,'BIBLIOTHÈQUE VISUELLE',lambda:self.show('library'))
         self.label(library_row,'Choisir un son par piste : presets ou banques A–D').pack(side='left',padx=8)
         grid=tk.Frame(self.content,bg=PANEL);grid.pack(fill='both',expand=True)
         self.seq_buttons=[]
@@ -239,7 +245,7 @@ class Workbench(tk.Frame):
         self.button(row,'ENREGISTRER PATTERN',self.save_sequence)
         self.button(row,'OUVRIR PATTERN',self.load_sequence)
         self.button(row,'EXPORT WAV',self.export_sequence)
-        self.label(self.content,'V23 : banques A–D par piste • 16 pas intégrés. Éditeur avancé pour 32/64 pas, swing et FX.').pack(anchor='w')
+        self.label(self.content,'V24 : bibliothèque visuelle intégrée • banques A–D par piste • 16 pas intégrés. Éditeur avancé pour 32/64 pas, swing et FX.').pack(anchor='w')
     def set_track_sound(self,lane,name):
         if name in available_sounds(self.data_dir):
             self.seq_sounds[lane]=name

@@ -1,0 +1,180 @@
+"""V24 visual library for the integrated Windows studio, local WAV only.
+Drag an occupied A-D slot onto one of the six track targets. No hardware MIDI writes.
+"""
+import array
+import json
+import sys
+import tkinter as tk
+import wave
+import winsound
+from pathlib import Path
+from tkinter import filedialog, messagebox
+from sample_bridge_v23 import store_pcm
+from sequencer_engine import TRACKS, librarian_choices
+
+BG='#211d1a'; DARK='#100f10'; RED='#ff493e'; TEXT='#e9dac2'; MUTED='#b9a99b'; STEEL='#887766'
+
+class LibraryPanel:
+    def __init__(self, workbench):
+        self.w=workbench
+        self.bank=tk.StringVar(value='TOUTES')
+        self.selected=None
+        self.drag=None
+        self.canvas=None
+        self.summary=tk.StringVar(value='Sélectionne un sample. Glisse-le sur une piste à droite.')
+
+    def build(self):
+        w=self.w
+        header=tk.Frame(w.content,bg=BG);header.pack(fill='x',pady=3)
+        for bank in ('TOUTES','A','B','C','D'):
+            w.button(header,bank,lambda b=bank:self.filter_bank(b))
+        w.button(header,'IMPORTER WAV',self.import_wav)
+        w.button(header,'ACTUALISER',self.refresh)
+        body=tk.Frame(w.content,bg=BG);body.pack(fill='both',expand=True)
+        left=tk.Frame(body,bg=DARK);left.pack(side='left',fill='both',expand=True,padx=(0,5))
+        right=tk.Frame(body,bg=DARK,width=205);right.pack(side='right',fill='y');right.pack_propagate(False)
+        tk.Label(left,text='BANQUES A–D · 32 EMPLACEMENTS',bg=DARK,fg=RED,font=('Segoe UI',10,'bold')).pack(anchor='w',padx=6,pady=5)
+        self.list_canvas=tk.Canvas(left,bg=DARK,highlightthickness=0)
+        scroll=tk.Scrollbar(left,orient='vertical',command=self.list_canvas.yview)
+        self.list_canvas.configure(yscrollcommand=scroll.set)
+        scroll.pack(side='right',fill='y');self.list_canvas.pack(side='left',fill='both',expand=True)
+        self.rows=tk.Frame(self.list_canvas,bg=DARK)
+        self.list_canvas.create_window((0,0),window=self.rows,anchor='nw')
+        self.rows.bind('<Configure>',lambda e:self.list_canvas.configure(scrollregion=self.list_canvas.bbox('all')))
+        self.list_canvas.bind('<Configure>',lambda e:self.list_canvas.itemconfigure(1,width=e.width))
+        tk.Label(right,text='DESTINATIONS · 6 PISTES',bg=DARK,fg=RED,font=('Segoe UI',9,'bold'),wraplength=190).pack(pady=6)
+        self.targets=[]
+        for lane,title in enumerate(TRACKS):
+            target=tk.Label(right,text=title+'\n'+w.seq_sounds[lane],bg='#34251e',fg=TEXT,
+                            relief='ridge',bd=1,wraplength=186,height=3,cursor='hand2')
+            target._moktek_lane=lane
+            target.pack(fill='x',padx=7,pady=4)
+            target.bind('<Button-1>',lambda e,l=lane:self.assign(l))
+            self.targets.append(target)
+        info=tk.Frame(w.content,bg=BG);info.pack(fill='x',pady=6)
+        self.wave=tk.Canvas(info,bg='#17090d',height=85,highlightbackground=STEEL,highlightthickness=1)
+        self.wave.pack(fill='x')
+        self.wave.bind('<Configure>',lambda e:self.draw_wave())
+        controls=tk.Frame(w.content,bg=BG);controls.pack(fill='x',pady=4)
+        w.button(controls,'▶ PRÉÉCOUTER',self.preview)
+        w.button(controls,'■ STOP',lambda:winsound.PlaySound(None,winsound.SND_PURGE))
+        w.button(controls,'VERS PISTE CHOISIE',lambda:self.assign(TRACKS.index(w.target_lane.get())))
+        tk.Label(controls,textvariable=self.summary,bg=BG,fg=MUTED,wraplength=340,anchor='w').pack(side='left',padx=5)
+        self.refresh()
+
+    def filter_bank(self,bank):
+        self.bank.set(bank);self.refresh()
+
+    def choices(self):
+        return librarian_choices(self.w.data_dir)
+
+    def refresh(self):
+        for child in self.rows.winfo_children():child.destroy()
+        choices=self.choices();filter_by=self.bank.get()
+        for name,path in choices.items():
+            if filter_by!='TOUTES' and not name.startswith('LIB '+filter_by):continue
+            line=tk.Frame(self.rows,bg='#362521' if name==self.selected else DARK)
+            line.pack(fill='x',padx=4,pady=2)
+            slot=name[4:];title=self.display_name(slot)
+            label=tk.Label(line,text=f'{slot}   {title[:31]}',bg=line['bg'],fg=TEXT,
+                           anchor='w',cursor='hand2',pady=6)
+            label.pack(fill='x')
+            for target in (line,label):
+                target.bind('<ButtonPress-1>',lambda e,n=name:self.begin_drag(n))
+                target.bind('<ButtonRelease-1>',self.end_drag)
+            label.bind('<Double-Button-1>',lambda e,n=name:self.choose(n))
+        if not choices:
+            tk.Label(self.rows,text='Aucun WAV dans les banques.\nUtilise IMPORTER WAV.',bg=DARK,fg=MUTED).pack(pady=15)
+        if self.selected not in choices:self.selected=None
+        self.draw_wave()
+
+    def display_name(self,slot):
+        index=Path(self.w.data_dir)/'sample_librarian'/'library.json'
+        try:
+            if index.stat().st_size>200_000:return slot
+            obj=json.loads(index.read_text(encoding='utf-8'))
+            key=slot[0]+str(int(slot[1:])-1)
+            return str(obj.get('slots',{}).get(key,{}).get('name',slot))[:80]
+        except (OSError,ValueError,TypeError):return slot
+
+    def choose(self,name):
+        if name not in self.choices():return
+        self.selected=name
+        self.summary.set(f'{name} sélectionné. Glisse-le vers une piste ou clique sur sa destination.')
+        self.refresh()
+
+    def begin_drag(self,name):
+        self.selected=name;self.drag=name
+        self.summary.set(f'{name} : déposer sur KICK, SNARE, HAT, BASS, LEAD ou PERC')
+        self.draw_wave()
+
+    def end_drag(self,event):
+        name=self.drag;self.drag=None
+        if not name:return
+        target=self.w.winfo_containing(self.w.winfo_pointerx(),self.w.winfo_pointery())
+        while target is not None:
+            lane=getattr(target,'_moktek_lane',None)
+            if lane is not None:
+                self.assign(lane,name);return
+            target=target.master
+        self.summary.set(f'{name} sélectionné : clique sur une piste pour l’affecter.')
+
+    def assign(self,lane,name=None):
+        sound=name or self.selected
+        if sound not in self.choices():
+            self.summary.set('Choisis d’abord un sample valide.');return
+        if not 0<=lane<len(TRACKS):return
+        self.w.seq_sounds[lane]=sound
+        self.targets[lane].configure(text=TRACKS[lane]+'\n'+sound,bg='#68221d')
+        self.w.state.set(f'V24 : {sound} affecté à {TRACKS[lane]} • ouvre SEQ pour écouter ou enregistrer le pattern')
+        self.summary.set(f'{sound} → {TRACKS[lane]} • affectation locale uniquement')
+
+    def current_path(self):
+        path=self.choices().get(self.selected)
+        if not path:raise ValueError('Sélectionne un sample dans la bibliothèque.')
+        return Path(path)
+
+    def preview(self):
+        try:
+            path=self.current_path()
+            winsound.PlaySound(str(path),winsound.SND_FILENAME|winsound.SND_ASYNC)
+        except Exception as exc:messagebox.showerror('Préécoute',str(exc),parent=self.w)
+
+    def import_wav(self):
+        file=filedialog.askopenfilename(parent=self.w,filetypes=[('WAV PCM 16 bits','*.wav')])
+        if not file:return
+        try:
+            path=Path(file)
+            if path.stat().st_size>80*1024*1024:raise ValueError('WAV supérieur à 80 Mo')
+            with wave.open(str(path),'rb') as src:
+                if src.getcomptype()!='NONE' or src.getsampwidth()!=2 or src.getnchannels()!=1:
+                    raise ValueError('WAV PCM 16 bits mono requis (convertir dans Sample Studio avancé)')
+                if src.getnframes()>src.getframerate()*180:
+                    raise ValueError('Maximum 3 minutes pour cet import')
+                sound=store_pcm(self.w.data_dir,src.readframes(src.getnframes()),src.getframerate(),path.stem)
+            self.bank.set('TOUTES');self.selected=sound;self.refresh()
+            self.summary.set(f'{sound} importé dans un emplacement libre')
+        except Exception as exc:messagebox.showerror('Import WAV',str(exc),parent=self.w)
+
+    def draw_wave(self):
+        if self.wave is None:return
+        c=self.wave;c.delete('all');w=max(1,c.winfo_width());h=max(1,c.winfo_height())
+        c.create_line(0,h/2,w,h/2,fill=STEEL)
+        try:
+            path=self.current_path()
+            if path.stat().st_size>80*1024*1024:return
+            with wave.open(str(path),'rb') as f:
+                if f.getsampwidth()!=2 or f.getnchannels() not in (1,2):return
+                n=f.getnframes();channels=f.getnchannels()
+                if n<=0:return
+                # Bounded waveform preview: sample at most 1200 short slices, no huge full-file load.
+                for x in range(0,w,2):
+                    start=int(x*n/w);f.setpos(start)
+                    raw=f.readframes(min(100,max(1,n-start)))
+                    a=array.array('h');a.frombytes(raw)
+                    if sys.byteorder!='little':a.byteswap()
+                    if not a:continue
+                    values=a[::channels]
+                    hi=max(values)/32768;lo=min(values)/32768
+                    c.create_line(x,h/2-hi*h*.44,x,h/2-lo*h*.44,fill=RED,width=2)
+        except (OSError,ValueError,wave.Error):return
