@@ -11,6 +11,7 @@ import winsound
 from librarian import SampleLibrarian
 from synth_factory import SynthFactory
 from sequencer_ui import TribeSequencer
+from korg_connection import KorgConnectionCenter
 import os
 import sys
 import time
@@ -18,7 +19,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk, filedialog, messagebox
 
-VERSION = "7.0"
+VERSION = "10.0"
 BG, PANEL, STEEL, RED, TEXT, MUTED = "#100f10", "#211d1a", "#887766", "#ff493e", "#e9dac2", "#b9a99b"
 DARK_RED, GLOW, RACK, GRID = "#381315", "#ff8272", "#332b25", "#702126"
 DATA_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "mokteK-Kaoss-Studio"
@@ -118,6 +119,7 @@ class Studio(tk.Tk):
         self.btn(left, "▦ SAMPLE LIBRARIAN", self.open_librarian).pack(fill="x", pady=(7, 0))
         self.btn(left, "♫ SYNTH FACTORY", self.open_synth_factory).pack(fill="x", pady=(7, 0))
         self.btn(left, "▦ TRIBE SEQUENCER", self.open_sequencer).pack(fill="x", pady=(7, 0))
+        self.btn(left, "◉ KORG CONNECTION", self.open_korg_center).pack(fill="x", pady=(7, 0))
 
         center = self.panel(body, "◉  TOUCH PAD   •   LIVE CONTROL")
         center.grid(row=0, column=1, sticky="nsew", padx=5)
@@ -588,7 +590,15 @@ class Studio(tk.Tk):
             return
         self.sequencer_window = TribeSequencer(self, DATA_DIR)
 
+    def open_korg_center(self):
+        if hasattr(self, "korg_window") and self.korg_window.winfo_exists():
+            self.korg_window.lift()
+            return
+        self.korg_window = KorgConnectionCenter(self)
+
     def close(self):
+        if hasattr(self, "korg_window") and self.korg_window.winfo_exists():
+            self.korg_window.close()
         self.stop()
         self.disconnect()
         self.destroy()
