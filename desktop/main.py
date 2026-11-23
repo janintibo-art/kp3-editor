@@ -25,7 +25,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk, filedialog, messagebox
 
-VERSION = "23.0"
+VERSION = "25.0"
 BG, PANEL, STEEL, RED, TEXT, MUTED = "#100f10", "#211d1a", "#887766", "#ff493e", "#e9dac2", "#b9a99b"
 DARK_RED, GLOW, RACK, GRID = "#381315", "#ff8272", "#332b25", "#702126"
 DATA_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "mokteK-Kaoss-Studio"
@@ -71,6 +71,7 @@ class Studio(tk.Tk):
         style.configure("TCombobox", fieldbackground="#1a1515", background=RACK, foreground=TEXT, arrowcolor=RED, bordercolor=STEEL)
         self._ui()
         self.after(350, self.restore_workspace)
+        self.after(550, lambda: self.switch_workbench(self.workspace_config.get("last_tool", "live")))
         self.protocol("WM_DELETE_WINDOW", self.close)
         self.after(50, self.tick)
         self.refresh_ports()
@@ -285,6 +286,7 @@ class Studio(tk.Tk):
             sashes = [self.work_panes.sash_coord(i)[0]/width for i in (0, 1)]
             self.workspace_config["sashes"] = sashes
             self.workspace_config["geometry"] = [self.winfo_width(), self.winfo_height()]
+            self.workspace_config["last_tool"] = getattr(self,"active_workbench","live")
             save_layout(DATA_DIR, self.workspace_config)
             self.message.set("Disposition Windows mémorisée sur ce PC.")
         except (ValueError, tk.TclError, OSError) as exc:

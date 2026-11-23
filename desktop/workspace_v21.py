@@ -2,7 +2,7 @@
 import json
 from pathlib import Path
 
-DEFAULT = {"version": 1, "mode": "equilibre", "geometry": [1350, 820], "sashes": None}
+DEFAULT = {"version": 1, "mode": "equilibre", "geometry": [1350, 820], "sashes": None, "last_tool": "live"}
 
 def normalize_layout(data):
     if not isinstance(data, dict):
@@ -10,6 +10,8 @@ def normalize_layout(data):
     result = dict(DEFAULT)
     if data.get("mode") in ("equilibre", "live", "studio"):
         result["mode"] = data["mode"]
+    if data.get("last_tool") in ("live", "sample", "synth", "seq", "library"):
+        result["last_tool"] = data["last_tool"]
     geometry = data.get("geometry")
     if isinstance(geometry, list) and len(geometry)==2 and all(type(n) is int for n in geometry):
         result["geometry"] = [max(1040, min(3000, geometry[0])), max(690, min(1800, geometry[1]))]

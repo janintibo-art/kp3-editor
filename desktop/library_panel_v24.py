@@ -3,12 +3,14 @@ Drag an occupied A-D slot onto one of the six track targets. No hardware MIDI wr
 """
 import array
 import json
+import os
+import unicodedata
 import sys
 import tkinter as tk
 import wave
 import winsound
 from pathlib import Path
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, ttk
 from sample_bridge_v23 import store_pcm
 from sequencer_engine import TRACKS, librarian_choices
 
@@ -19,6 +21,11 @@ class LibraryPanel:
         self.w=workbench
         self.bank=tk.StringVar(value='TOUTES')
         self.selected=None
+        self.search=tk.StringVar(value="")
+        self.category=tk.StringVar(value="TOUS")
+        self.favorites_only=tk.BooleanVar(value=False)
+        self.favorites=self.load_favorites()
+        self.visible_count=tk.StringVar(value="")
         self.drag=None
         self.canvas=None
         self.summary=tk.StringVar(value='Sélectionne un sample. Glisse-le sur une piste à droite.')
@@ -30,6 +37,16 @@ class LibraryPanel:
             w.button(header,bank,lambda b=bank:self.filter_bank(b))
         w.button(header,'IMPORTER WAV',self.import_wav)
         w.button(header,'ACTUALISER',self.refresh)
+        filters=tk.Frame(w.content,bg=BG);filters.pack(fill='x',pady=4)
+        tk.Label(filters,text='RECHERCHER',bg=BG,fg=TEXT).pack(side='left',padx=3)
+        search_entry=tk.Entry(filters,textvariable=self.search,bg='#160e0e',fg=TEXT,insertbackground=RED,width=23)
+        search_entry.pack(side='left',padx=4)
+        self.search.trace_add('write',lambda *_:self.refresh())
+        ttk.Combobox(filters,textvariable=self.category,values=('TOUS','KICK','SNARE','HAT','BASS','LEAD','PERC','AUTRES'),width=10,state='readonly').pack(side='left',padx=4)
+        self.category.trace_add('write',lambda *_:self.refresh())
+        tk.Checkbutton(filters,text='★ FAVORIS',variable=self.favorites_only,command=self.refresh,bg=BG,fg=TEXT,
+                       selectcolor='#34251e',activebackground=BG).pack(side='left',padx=4)
+        tk.Label(filters,textvariable=self.visible_count,bg=BG,fg=MUTED).pack(side='right',padx=4)
         body=tk.Frame(w.content,bg=BG);body.pack(fill='both',expand=True)
         left=tk.Frame(body,bg=DARK);left.pack(side='left',fill='both',expand=True,padx=(0,5))
         right=tk.Frame(body,bg=DARK,width=205);right.pack(side='right',fill='y');right.pack_propagate(False)
@@ -68,23 +85,75 @@ class LibraryPanel:
     def choices(self):
         return librarian_choices(self.w.data_dir)
 
+    def _favorites_path(self):
+        return Path(self.w.data_dir)/'sample_favorites_v25.json'
+
+    def load_favorites(self):
+        try:
+            path=self._favorites_path()
+            if path.stat().st_size>8192:return set()
+            data=json.loads(path.read_text(encoding='utf-8'))
+            if not isinstance(data,list):return set()
+            return {v for v in data if isinstance(v,str) and v in
+                    {f'{b}{i}' for b in 'ABCD' for i in range(1,9)}}
+        except (OSError,ValueError,TypeError):return set()
+
+    def save_favorites(self):
+        path=self._favorites_path();path.parent.mkdir(parents=True,exist_ok=True)
+        temp=path.with_suffix('.tmp')
+        temp.write_text(json.dumps(sorted(self.favorites),ensure_ascii=False),encoding='utf-8')
+        os.replace(temp,path)
+
+    def toggle_favorite(self,slot):
+        if slot in self.favorites:self.favorites.remove(slot)
+        else:self.favorites.add(slot)
+        try:self.save_favorites()
+        except OSError as exc:messagebox.showerror('Favoris',str(exc),parent=self.w)
+        self.refresh()
+
+    @staticmethod
+    def normalize(text):
+        return ''.join(c for c in unicodedata.normalize('NFKD',text.casefold()) if not unicodedata.combining(c))
+
+    @staticmethod
+    def guess_type(name):
+        text=LibraryPanel.normalize(name)
+        for group,words in [('KICK',('kick','bd','grosse caisse','bassdrum')),
+                            ('SNARE',('snare','caisse claire','clap')),
+                            ('HAT',('hat','hihat','charley','cymbal')),
+                            ('BASS',('bass','basse','sub')),
+                            ('LEAD',('lead','synth','melodie','acid')),
+                            ('PERC',('perc','tom','rim','conga','shaker'))]:
+            if any(word in text for word in words):return group
+        return 'AUTRES'
+
     def refresh(self):
+        if not hasattr(self,'rows'):return
         for child in self.rows.winfo_children():child.destroy()
         choices=self.choices();filter_by=self.bank.get()
+        needle=self.normalize(self.search.get().strip());category=self.category.get();count=0
         for name,path in choices.items():
             if filter_by!='TOUTES' and not name.startswith('LIB '+filter_by):continue
+            slot=name[4:];title=self.display_name(slot)
+            if needle not in self.normalize(slot+' '+title):continue
+            if category!='TOUS' and self.guess_type(title)!=category:continue
+            if self.favorites_only.get() and slot not in self.favorites:continue
+            count+=1
             line=tk.Frame(self.rows,bg='#362521' if name==self.selected else DARK)
             line.pack(fill='x',padx=4,pady=2)
-            slot=name[4:];title=self.display_name(slot)
+            star=tk.Button(line,text='★' if slot in self.favorites else '☆',width=2,bg=line['bg'],fg=RED,
+                           relief='flat',command=lambda slot=slot:self.toggle_favorite(slot))
+            star.pack(side='left')
             label=tk.Label(line,text=f'{slot}   {title[:31]}',bg=line['bg'],fg=TEXT,
                            anchor='w',cursor='hand2',pady=6)
-            label.pack(fill='x')
+            label.pack(side='left',fill='x',expand=True)
             for target in (line,label):
                 target.bind('<ButtonPress-1>',lambda e,n=name:self.begin_drag(n))
                 target.bind('<ButtonRelease-1>',self.end_drag)
             label.bind('<Double-Button-1>',lambda e,n=name:self.choose(n))
-        if not choices:
-            tk.Label(self.rows,text='Aucun WAV dans les banques.\nUtilise IMPORTER WAV.',bg=DARK,fg=MUTED).pack(pady=15)
+        self.visible_count.set(f'{count}/{len(choices)} sons')
+        if not count:
+            tk.Label(self.rows,text='Aucun sample correspondant.\nChange le filtre ou importe un WAV.',bg=DARK,fg=MUTED).pack(pady=15)
         if self.selected not in choices:self.selected=None
         self.draw_wave()
 

@@ -58,7 +58,7 @@ class Workbench(tk.Frame):
         winsound.PlaySound(None,winsound.SND_PURGE)
         for child in self.header.winfo_children():child.destroy()
         for child in self.content.winfo_children():child.destroy()
-        title={'sample':'SAMPLE STUDIO','synth':'SYNTH FACTORY','seq':'TRIBE SEQUENCER','library':'BIBLIOTHÈQUE VISUELLE V24'}[tool]
+        title={'sample':'SAMPLE STUDIO','synth':'SYNTH FACTORY','seq':'TRIBE SEQUENCER','library':'BIBLIOTHÈQUE VISUELLE V25'}[tool]
         tk.Label(self.header,text=title,bg=PANEL,fg=RED,font=('Segoe UI',16,'bold')).pack(side='left')
         self.button(self.header,'ÉDITEUR AVANCÉ',lambda:self.open_full(tool)).pack_configure(side='right')
         if tool=='sample':self.build_sample()
