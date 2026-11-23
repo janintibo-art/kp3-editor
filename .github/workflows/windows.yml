@@ -1,0 +1,38 @@
+name: Compiler EXE Windows
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/windows.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Installer les dépendances
+        run: python -m pip install -r desktop/requirements.txt
+      - name: Vérifier la syntaxe
+        run: python -m py_compile desktop/main.py
+      - name: Construire le logiciel Windows
+        run: python -m PyInstaller --noconfirm --clean --onefile --windowed --name moktek-kaoss-studio-windows --collect-all mido --collect-all rtmidi desktop/main.py
+      - name: Vérifier la présence de l'EXE
+        shell: pwsh
+        run: |
+          if (!(Test-Path "dist/moktek-kaoss-studio-windows.exe")) { throw "EXE introuvable" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: moktek-kaoss-studio-windows
+          path: dist/moktek-kaoss-studio-windows.exe
+      - name: Publier dans GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: windows-v1.0-${{ github.run_number }}
+          name: mokteK Kaoss Studio Windows V1.0
+          files: dist/moktek-kaoss-studio-windows.exe
