@@ -8,6 +8,8 @@ import unicodedata
 import sys
 import tkinter as tk
 import wave
+import threading
+from sample_analysis_v26 import analyze_wav
 import winsound
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -29,6 +31,8 @@ class LibraryPanel:
         self.drag=None
         self.canvas=None
         self.summary=tk.StringVar(value='Sélectionne un sample. Glisse-le sur une piste à droite.')
+        self.analysis=tk.StringVar(value='FICHE SON · Sélectionne un WAV puis clique sur ANALYSER.')
+        self.analysis_busy=False
 
     def build(self):
         w=self.w
@@ -74,10 +78,35 @@ class LibraryPanel:
         self.wave.bind('<Configure>',lambda e:self.draw_wave())
         controls=tk.Frame(w.content,bg=BG);controls.pack(fill='x',pady=4)
         w.button(controls,'▶ PRÉÉCOUTER',self.preview)
+        w.button(controls,'ANALYSER',self.analyze_selected)
         w.button(controls,'■ STOP',lambda:winsound.PlaySound(None,winsound.SND_PURGE))
         w.button(controls,'VERS PISTE CHOISIE',lambda:self.assign(TRACKS.index(w.target_lane.get())))
         tk.Label(controls,textvariable=self.summary,bg=BG,fg=MUTED,wraplength=340,anchor='w').pack(side='left',padx=5)
+        tk.Label(w.content,textvariable=self.analysis,bg=BG,fg=TEXT,justify='left',anchor='w',wraplength=550).pack(fill='x',pady=5)
         self.refresh()
+
+    def analyze_selected(self):
+        if self.analysis_busy:return
+        try:path=self.current_path()
+        except ValueError as exc:
+            self.summary.set(str(exc));return
+        self.analysis_busy=True
+        self.analysis.set('Analyse du WAV en cours…')
+        def work():
+            try:result=analyze_wav(path);error=None
+            except Exception as exc:result=None;error=str(exc)
+            def finish():
+                self.analysis_busy=False
+                if error:self.analysis.set('Analyse impossible : '+error);return
+                bpm=(str(result['bpm_estimate'])+' BPM (indicatif)' if result['bpm_estimate'] else 'indéterminé')
+                self.analysis.set(
+                    f"FICHE SON · {result['name']}\n"
+                    f"Durée {result['duration_seconds']:.2f} s  |  {result['sample_rate_hz']} Hz  |  "
+                    f"{result['channels']} canal(aux) · PCM {result['bit_depth']} bits\n"
+                    f"Pic {result['peak_dbfs']} dBFS  |  RMS {result['rms_dbfs']} dBFS  |  BPM {bpm}")
+            try:self.w.after(0,finish)
+            except RuntimeError:pass
+        threading.Thread(target=work,daemon=True).start()
 
     def filter_bank(self,bank):
         self.bank.set(bank);self.refresh()
@@ -170,6 +199,7 @@ class LibraryPanel:
         if name not in self.choices():return
         self.selected=name
         self.summary.set(f'{name} sélectionné. Glisse-le vers une piste ou clique sur sa destination.')
+        self.analysis.set('FICHE SON · Clique sur ANALYSER pour obtenir les mesures du WAV.')
         self.refresh()
 
     def begin_drag(self,name):
